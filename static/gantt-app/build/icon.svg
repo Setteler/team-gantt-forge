@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0073ea"/>
+  <!-- Gantt bars -->
+  <!-- Row 1 -->
+  <rect x="80" y="140" width="220" height="56" rx="12" fill="white" opacity="0.95"/>
+  <!-- Row 2 -->
+  <rect x="160" y="228" width="200" height="56" rx="12" fill="white" opacity="0.75"/>
+  <!-- Row 3 -->
+  <rect x="80" y="316" width="280" height="56" rx="12" fill="white" opacity="0.55"/>
+  <!-- Today line -->
+  <rect x="340" y="100" width="8" height="312" rx="4" fill="white" opacity="0.9"/>
+</svg>
