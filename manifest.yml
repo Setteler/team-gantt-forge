@@ -6,7 +6,7 @@ modules:
         function: resolver
       title: Team Gantt
       layout: basic
-      icon: icon.svg
+      icon: https://raw.githubusercontent.com/Setteler/team-gantt-forge/main/icon.svg
 
   function:
     - key: resolver
