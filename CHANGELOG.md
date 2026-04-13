@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 3 in progress. Upcoming: Risks (register + 5×5 matrix), Resources (capacity heatmap).
+Phase 3 continuing. Upcoming: Resources (capacity heatmap, uses Teams data).
+
+## [1.5.0] - 2026-04-13
+
+### Added
+
+- **Risks module** — track risks to delivery with probability × impact scoring. Two views: **List** (sorted by score descending, with colored status + score chips) and **5×5 Matrix** (classic probability × impact grid, green → red gradient based on score). Each risk: title, description, probability (1–5), impact (1–5), status (open / mitigating / accepted / closed), owner, mitigation plan, linked Jira issue keys. Stored in KVS under `gantt_risks` (global). Create / edit via modal, delete via row action. ⚠️ icon in the MODULES sidebar.
+- Backend: `getRisks`, `saveRisk`, `deleteRisk` resolvers.
 
 ## [1.4.0] - 2026-04-13
 

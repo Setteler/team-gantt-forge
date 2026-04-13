@@ -287,6 +287,34 @@ resolver.define('deleteTeam', async ({ payload }) => {
   return { success: true };
 });
 
+// ── Risks (global) ──────────────────────────────────────────────────────────
+
+resolver.define('getRisks', async () => {
+  return (await storage.get('gantt_risks')) || [];
+});
+
+resolver.define('saveRisk', async ({ payload }) => {
+  const { risk } = payload;
+  const risks = (await storage.get('gantt_risks')) || [];
+  if (risk.id) {
+    const idx = risks.findIndex(r => r.id === risk.id);
+    if (idx >= 0) risks[idx] = risk; else risks.push(risk);
+  } else {
+    risk.id = `risk-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    risk.createdAt = risk.createdAt || Date.now();
+    risks.push(risk);
+  }
+  await storage.set('gantt_risks', risks);
+  return risk;
+});
+
+resolver.define('deleteRisk', async ({ payload }) => {
+  const { id } = payload;
+  const risks = (await storage.get('gantt_risks')) || [];
+  await storage.set('gantt_risks', risks.filter(r => r.id !== id));
+  return { success: true };
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

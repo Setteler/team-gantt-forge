@@ -64,6 +64,7 @@ const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
 
 const MODULES = [
   { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65' },
+  { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F' },
 ];
 
 export default function ViewSidebar({

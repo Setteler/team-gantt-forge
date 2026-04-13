@@ -6,6 +6,7 @@ import TreeView from './components/TreeView';
 import RoadmapView from './components/RoadmapView';
 import ViewSidebar from './components/ViewSidebar';
 import TeamsModule from './components/TeamsModule';
+import RisksModule from './components/RisksModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import { getFieldValue } from './utils';
@@ -91,6 +92,7 @@ export default function App() {
   // ── Modules ───────────────────────────────────────────────────────────────
   const [activeModuleId, setActiveModuleId] = useState(null);
   const [teams, setTeams] = useState([]);
+  const [risks, setRisks] = useState([]);
 
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -101,9 +103,11 @@ export default function App() {
       invoke('getFields'),
       invoke('getHolidays'),
       invoke('getTeams'),
-    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData]) => {
+      invoke('getRisks'),
+    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData, risksData]) => {
       setHolidays(holidaysData || []);
       setTeams(teamsData || []);
+      setRisks(risksData || []);
       const loadedViews = viewsData || [];
       setViews(loadedViews);
       setFolders(foldersData || []);
@@ -483,6 +487,21 @@ export default function App() {
     setTeams(prev => prev.filter(t => t.id !== id));
   }
 
+  // ── Risk management ───────────────────────────────────────────────────────
+  async function saveRisk(riskData) {
+    const saved = await invoke('saveRisk', { risk: riskData });
+    setRisks(prev => {
+      const idx = prev.findIndex(r => r.id === saved.id);
+      if (idx >= 0) return prev.map(r => r.id === saved.id ? saved : r);
+      return [...prev, saved];
+    });
+  }
+
+  async function deleteRisk(id) {
+    await invoke('deleteRisk', { id });
+    setRisks(prev => prev.filter(r => r.id !== id));
+  }
+
   // ── Module selection ──────────────────────────────────────────────────────
   function handleSelectModule(moduleId) {
     setActiveModuleId(moduleId || null);
@@ -529,6 +548,8 @@ export default function App() {
         <span style={styles.appTitle}>Team Gantt</span>
         {activeModuleId === 'teams' ? (
           <span style={styles.viewName}>&#128101; Teams</span>
+        ) : activeModuleId === 'risks' ? (
+          <span style={styles.viewName}>&#9888;&#65039; Risks</span>
         ) : activeView && (
           <span style={styles.viewName}>
             {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : '▤ '}{activeView.name}
@@ -627,6 +648,8 @@ export default function App() {
         <div style={styles.content}>
           {activeModuleId === 'teams' ? (
             <TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} />
+          ) : activeModuleId === 'risks' ? (
+            <RisksModule risks={risks} onSaveRisk={saveRisk} onDeleteRisk={deleteRisk} />
           ) : (
           <>
           {error && (
