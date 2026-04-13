@@ -184,6 +184,7 @@ export default function GanttChart({
   scrollToTarget, onVisibleMonthChange,
   onEditEvent, onDeleteEvent, onUpdateEvent, onUpdateIssue, onCreateEvent,
   onPreviewIssue, previewFields, availableFields,
+  showCriticalPath,
 }) {
   const scrollRef     = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -342,13 +343,126 @@ export default function GanttChart({
           const succStartX = succ.x;
           // Violation: predecessor ends strictly after successor starts
           const violated = pred.endDate > succ.startDate;
-          arrows.push({ predEndX, predMidY: pred.midY, succStartX, succMidY: succ.midY, violated });
+          arrows.push({ predEndX, predMidY: pred.midY, succStartX, succMidY: succ.midY, violated, predKey, succKey });
         }
       }
     }
 
     return { depArrows: arrows, totalRowsHeight: cumulY };
   }, [rows, sdf, edf, bufferStart]);
+
+  // ── Critical path computation (Kahn's topological sort) ──────────────────
+  const criticalPathSet = useMemo(() => {
+    if (!showCriticalPath) return new Set();
+
+    // Build adjacency from issue data restricted to rendered issues
+    const nodeKeys = new Set();
+    const adj = {};      // predecessor -> [successor]
+    const revAdj = {};   // successor -> [predecessor]
+    const inDegree = {};
+    const duration = {};
+
+    // Collect all jira items from rows that are in the position map
+    for (const row of rows) {
+      if (row.type !== 'lane') continue;
+      for (const item of row.items) {
+        if (item._type !== 'jira') continue;
+        const key = item.key;
+        const { s, e } = getItemDates(item, sdf, edf);
+        const dur = daysBetween(s, e) + 1;
+        if (!nodeKeys.has(key)) {
+          nodeKeys.add(key);
+          duration[key] = Math.max(dur, 1);
+          if (!adj[key]) adj[key] = [];
+          if (!revAdj[key]) revAdj[key] = [];
+          if (!(key in inDegree)) inDegree[key] = 0;
+        }
+      }
+    }
+
+    if (nodeKeys.size === 0) return new Set();
+
+    // Build edges from issue links (deduplicate to avoid double-counting)
+    const edgeSeen = new Set();
+    for (const row of rows) {
+      if (row.type !== 'lane') continue;
+      for (const item of row.items) {
+        if (item._type !== 'jira') continue;
+        const links = item.fields?.issuelinks;
+        if (!links || !links.length) continue;
+        for (const link of links) {
+          if (link.type?.name !== 'Blocks' || !link.outwardIssue) continue;
+          const predKey = item.key;
+          const succKey = link.outwardIssue.key;
+          if (predKey === succKey) continue;
+          if (!nodeKeys.has(predKey) || !nodeKeys.has(succKey)) continue;
+          const edgeKey = `${predKey}->${succKey}`;
+          if (edgeSeen.has(edgeKey)) continue;
+          edgeSeen.add(edgeKey);
+          adj[predKey].push(succKey);
+          revAdj[succKey].push(predKey);
+          inDegree[succKey] = (inDegree[succKey] || 0) + 1;
+        }
+      }
+    }
+
+    // Kahn's algorithm for topological sort + earliest finish computation
+    const earliestFinish = {};
+    const queue = [];
+    for (const key of nodeKeys) {
+      earliestFinish[key] = duration[key];
+      if ((inDegree[key] || 0) === 0) queue.push(key);
+    }
+
+    let processed = 0;
+    while (queue.length > 0) {
+      const node = queue.shift();
+      processed++;
+      for (const succ of (adj[node] || [])) {
+        const candidate = earliestFinish[node] + duration[succ];
+        if (candidate > earliestFinish[succ]) {
+          earliestFinish[succ] = candidate;
+        }
+        inDegree[succ]--;
+        if (inDegree[succ] === 0) queue.push(succ);
+      }
+    }
+
+    // Cycle detection: if we didn't process all nodes, there's a cycle
+    if (processed < nodeKeys.size) return new Set();
+
+    // Find the node with the largest earliest finish
+    let maxEF = -1;
+    let endNode = null;
+    for (const key of nodeKeys) {
+      if (earliestFinish[key] > maxEF) {
+        maxEF = earliestFinish[key];
+        endNode = key;
+      }
+    }
+
+    if (!endNode) return new Set();
+
+    // Trace backward: always pick the predecessor with the largest earliestFinish
+    const path = new Set();
+    let current = endNode;
+    while (current) {
+      path.add(current);
+      const preds = (revAdj[current] || []).filter(p => (adj[p] || []).includes(current));
+      if (preds.length === 0) break;
+      let bestPred = null;
+      let bestEF = -1;
+      for (const p of preds) {
+        if (earliestFinish[p] > bestEF) {
+          bestEF = earliestFinish[p];
+          bestPred = p;
+        }
+      }
+      current = bestPred;
+    }
+
+    return path;
+  }, [showCriticalPath, rows, sdf, edf]);
 
   // ── SVG overlay element for dependency arrows ────────────────────────────
   const depArrowsSvg = useMemo(() => {
@@ -361,7 +475,25 @@ export default function GanttChart({
         xmlns="http://www.w3.org/2000/svg"
       >
         {depArrows.map((a, i) => {
-          const color = a.violated ? '#E2445C' : '#6B778C';
+          const isCriticalArrow = showCriticalPath && criticalPathSet.has(a.predKey) && criticalPathSet.has(a.succKey);
+          let color, sw;
+          if (isCriticalArrow && a.violated) {
+            // Critical-and-violated: more saturated red, thickest stroke
+            color = '#BF2040';
+            sw = 3;
+          } else if (isCriticalArrow) {
+            // Critical-and-fine: red, thick stroke
+            color = '#E2445C';
+            sw = 2.5;
+          } else if (a.violated) {
+            // Violated but not critical: existing red
+            color = '#E2445C';
+            sw = 1.5;
+          } else {
+            // Normal: gray
+            color = '#6B778C';
+            sw = 1.5;
+          }
           const x1 = a.predEndX;
           const y1 = a.predMidY;
           const x2 = a.succStartX;
@@ -377,14 +509,14 @@ export default function GanttChart({
           const ah = `${tipX} ${y2 - ARROW_SIZE / 2}, ${tipX + ARROW_SIZE} ${y2}, ${tipX} ${y2 + ARROW_SIZE / 2}`;
           return (
             <g key={i}>
-              <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+              <path d={d} fill="none" stroke={color} strokeWidth={sw} strokeLinejoin="round" />
               <polygon points={ah} fill={color} />
             </g>
           );
         })}
       </svg>
     );
-  }, [depArrows, totalWidth, totalRowsHeight]);
+  }, [depArrows, totalWidth, totalRowsHeight, showCriticalPath, criticalPathSet]);
 
   function toggleGroup(g1) {
     setCollapsedGroups(prev => { const n = new Set(prev); n.has(g1) ? n.delete(g1) : n.add(g1); return n; });
@@ -639,7 +771,7 @@ export default function GanttChart({
                   {row.items.map(item =>
                     item._type === 'custom'
                       ? <EventBar key={item.id} event={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} onEdit={onEditEvent} onDelete={onDeleteEvent} onUpdate={onUpdateEvent} />
-                      : <GanttBar key={item.key} issue={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} squadColor={row.color} onUpdate={onUpdateIssue} startDateField={sdf} endDateField={edf} onPreview={onPreviewIssue} previewFields={previewFields} availableFields={availableFields} />
+                      : <GanttBar key={item.key} issue={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} squadColor={row.color} onUpdate={onUpdateIssue} startDateField={sdf} endDateField={edf} onPreview={onPreviewIssue} previewFields={previewFields} availableFields={availableFields} isCritical={showCriticalPath && criticalPathSet.has(item.key)} />
                   )}
                   {createDrag?.g1 === row.g1 && createDrag?.g2 === row.g2 && (
                     <CreatePreview startDay={createDrag.startDay} endDay={createDrag.curDay} color={row.color} rowH={ITEM_HEIGHT} />

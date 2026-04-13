@@ -76,6 +76,7 @@ export default function App() {
   const [pendingCreate, setPendingCreate]   = useState(null);
   const [showConfig, setShowConfig]         = useState(false);
   const [ganttFilter, setGanttFilter]       = useState('all');
+  const [showCriticalPath, setShowCriticalPath] = useState(true);
 
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -435,7 +436,7 @@ export default function App() {
 
       {/* ── Gantt filter bar ── */}
       {viewType === 'timeline' && (
-        <div style={{ display: 'flex', gap: '4px', padding: '6px 16px', background: '#fff', borderBottom: '1px solid #e6e9ef', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 16px', background: '#fff', borderBottom: '1px solid #e6e9ef', flexShrink: 0 }}>
           {[
             { f: 'all',    label: `All (${issues.length + customEvents.length})` },
             { f: 'issues', label: `Issues (${issues.length})` },
@@ -452,6 +453,21 @@ export default function App() {
               onClick={() => setGanttFilter(f)}
             >{label}</button>
           ))}
+          <div style={{ width: '1px', height: '20px', background: '#DFE1E6', margin: '0 4px' }} />
+          <button
+            style={{
+              padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
+              border: '1px solid', cursor: 'pointer',
+              background: showCriticalPath ? '#E2445C' : '#fff',
+              color: showCriticalPath ? '#fff' : '#6B778C',
+              borderColor: showCriticalPath ? '#E2445C' : '#DFE1E6',
+              display: 'flex', alignItems: 'center', gap: '4px',
+            }}
+            onClick={() => setShowCriticalPath(v => !v)}
+            title="Highlight the longest chain of dependent issues"
+          >
+            <span style={{ fontSize: '10px' }}>{showCriticalPath ? '■' : '□'}</span> Critical Path
+          </button>
         </div>
       )}
 
@@ -532,6 +548,7 @@ export default function App() {
               onPreviewIssue={null}
               previewFields={listFields}
               availableFields={availableFields}
+              showCriticalPath={showCriticalPath}
             />
           )}
         </div>

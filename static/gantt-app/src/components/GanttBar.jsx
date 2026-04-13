@@ -58,7 +58,7 @@ function GripDots({ color }) {
   );
 }
 
-export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPadding, totalDays, squadColor, onUpdate, startDateField, endDateField, onPreview, previewFields, availableFields }) {
+export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPadding, totalDays, squadColor, onUpdate, startDateField, endDateField, onPreview, previewFields, availableFields, isCritical }) {
   const [showTooltip, setShowTooltip]   = useState(false);
   const [tooltipPos, setTooltipPos]     = useState({ x: 0, y: 0 });
   const [hovered, setHovered]           = useState(false);
@@ -265,8 +265,8 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
           left: barLeft, top: barPadding,
           width: barWidth, height: barHeight,
           background: barBg,
-          border: `1px solid ${barBorder}35`,
-          borderLeft: `3px solid ${barBorder}`,
+          border: isCritical ? '2px solid #E2445C' : `1px solid ${barBorder}35`,
+          borderLeft: isCritical ? '3px solid #E2445C' : `3px solid ${barBorder}`,
           borderRadius: overflowLeft ? '0 6px 6px 0' : overflowRight ? '6px 0 0 6px' : '6px',
           cursor: isDragging ? 'grabbing' : 'grab',
           display: 'flex', alignItems: 'center',

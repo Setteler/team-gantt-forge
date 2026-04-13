@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-BigPicture-parity work in progress. Upcoming: critical path, baselines, working calendar, Boxes (portfolio hierarchy).
+BigPicture-parity work in progress. Upcoming: baselines, working calendar, Boxes (portfolio hierarchy).
+
+## [1.0.4] - 2026-04-13
+
+### Added
+
+- **Critical path** — the longest dependency chain through the rendered "Blocks" graph is computed and highlighted. Issues on the critical path get a thicker red border; their connecting arrows are drawn in red (saturated dark red `#BF2040` if the dependency is also a schedule violation). Toggle in the gantt filter bar (default on). Algorithm: Kahn's topological sort with earliest-finish propagation; cycles detected and skipped gracefully.
 
 ## [1.0.3] - 2026-04-13
 
