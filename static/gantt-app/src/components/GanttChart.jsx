@@ -200,9 +200,12 @@ export default function GanttChart({
   const f1  = groupByField1  || 'labels';
   const f2  = groupByField2  || 'assignee';
 
-  // Fixed 4-year buffer centered around today
-  const bufferStart = new Date(today.getFullYear() - 1, 0, 1);
-  const bufferEnd   = new Date(today.getFullYear() + 3, 0, 0);
+  // Fixed 4-year buffer centered around today.
+  // Memoized on year so dependent useMemos (dependency arrows, etc.) don't
+  // re-run every render due to a fresh Date object.
+  const todayYear = today.getFullYear();
+  const bufferStart = useMemo(() => new Date(todayYear - 1, 0, 1), [todayYear]);
+  const bufferEnd   = useMemo(() => new Date(todayYear + 3, 0, 0), [todayYear]);
   const totalDays   = daysBetween(bufferStart, bufferEnd) + 1;
   const totalWidth  = totalDays * DAY_WIDTH;
   const todayOff    = daysBetween(bufferStart, today) * DAY_WIDTH;
@@ -293,6 +296,95 @@ export default function GanttChart({
     }
     return r;
   }, [grouped, groupNames, collapsedGroups, collapsedSubs, sdf, edf]);
+
+  // ── Dependency arrows: position map + arrow data ──────────────────────────
+  const { depArrows, totalRowsHeight } = useMemo(() => {
+    const map = {};
+    let cumulY = 0;
+    for (const row of rows) {
+      const rowH = row.type === 'group' ? GROUP_HEIGHT : row.type === 'sub' ? SUB_HEIGHT : ITEM_HEIGHT;
+      if (row.type === 'lane') {
+        for (const item of row.items) {
+          if (item._type !== 'jira') continue;
+          const { s, e } = getItemDates(item, sdf, edf);
+          const xStart = daysBetween(bufferStart, s) * DAY_WIDTH;
+          const xEnd   = (daysBetween(bufferStart, e) + 1) * DAY_WIDTH;
+          map[item.key] = {
+            x: xStart,
+            width: xEnd - xStart,
+            midY: cumulY + rowH / 2,
+            startDate: s,
+            endDate: e,
+          };
+        }
+      }
+      cumulY += rowH;
+    }
+
+    // Build arrows from issue links
+    const arrows = [];
+    for (const row of rows) {
+      if (row.type !== 'lane') continue;
+      for (const item of row.items) {
+        if (item._type !== 'jira') continue;
+        const links = item.fields?.issuelinks;
+        if (!links || !links.length) continue;
+        for (const link of links) {
+          // Only process outward "Blocks" links to avoid duplicates
+          if (link.type?.name !== 'Blocks' || !link.outwardIssue) continue;
+          const predKey = item.key;
+          const succKey = link.outwardIssue.key;
+          if (predKey === succKey) continue; // skip self-links
+          if (!map[predKey] || !map[succKey]) continue;
+          const pred = map[predKey];
+          const succ = map[succKey];
+          const predEndX  = pred.x + pred.width;
+          const succStartX = succ.x;
+          // Violation: predecessor ends strictly after successor starts
+          const violated = pred.endDate > succ.startDate;
+          arrows.push({ predEndX, predMidY: pred.midY, succStartX, succMidY: succ.midY, violated });
+        }
+      }
+    }
+
+    return { depArrows: arrows, totalRowsHeight: cumulY };
+  }, [rows, sdf, edf, bufferStart]);
+
+  // ── SVG overlay element for dependency arrows ────────────────────────────
+  const depArrowsSvg = useMemo(() => {
+    if (!depArrows.length) return null;
+    const ARROW_SIZE = 6;
+    const GAP = 8;
+    return (
+      <svg
+        style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalRowsHeight, pointerEvents: 'none', zIndex: 1 }}
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        {depArrows.map((a, i) => {
+          const color = a.violated ? '#E2445C' : '#6B778C';
+          const x1 = a.predEndX;
+          const y1 = a.predMidY;
+          const x2 = a.succStartX;
+          const y2 = a.succMidY;
+          // Direction-aware routing: arrow always points INTO the successor's left edge.
+          // For forward deps (x2 >= x1): elbow goes right from pred, then to succ.
+          // For backward (overlap/violation): route around with negative gap so arrowhead still points right into succ.
+          const forward = x2 >= x1;
+          const tipX = x2 - 2;
+          const elbowX = forward ? x1 + GAP : Math.min(x1 + GAP, x2 - GAP);
+          const d = `M ${x1} ${y1} L ${elbowX} ${y1} L ${elbowX} ${y2} L ${tipX} ${y2}`;
+          // Arrowhead always points right (into successor's left edge)
+          const ah = `${tipX} ${y2 - ARROW_SIZE / 2}, ${tipX + ARROW_SIZE} ${y2}, ${tipX} ${y2 + ARROW_SIZE / 2}`;
+          return (
+            <g key={i}>
+              <path d={d} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+              <polygon points={ah} fill={color} />
+            </g>
+          );
+        })}
+      </svg>
+    );
+  }, [depArrows, totalWidth, totalRowsHeight]);
 
   function toggleGroup(g1) {
     setCollapsedGroups(prev => { const n = new Set(prev); n.has(g1) ? n.delete(g1) : n.add(g1); return n; });
@@ -506,7 +598,8 @@ export default function GanttChart({
           </div>
 
           {/* Timeline body */}
-          <div style={{ width: totalWidth, flexShrink: 0 }}>
+          <div style={{ width: totalWidth, flexShrink: 0, position: 'relative' }}>
+            {depArrowsSvg}
             {rows.map((row, idx) => {
               if (row.type === 'group') {
                 return (

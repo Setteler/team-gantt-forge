@@ -6,7 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-BigPicture-parity work in progress.
+BigPicture-parity work in progress. Upcoming: milestones, critical path, baselines, working calendar, Boxes (portfolio hierarchy).
+
+## [1.0.2] - 2026-04-13
 
 ### Added
 

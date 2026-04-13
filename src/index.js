@@ -12,6 +12,7 @@ resolver.define('getIssues', async ({ payload }) => {
   const baseFields = [
     'summary', 'assignee', 'status', 'priority', 'duedate',
     'customfield_10015', 'labels', 'issuetype', 'project', 'resolution', 'reporter',
+    'issuelinks',
   ];
   const allFields = [...new Set([...baseFields, ...extraFields])].join(',');
 
