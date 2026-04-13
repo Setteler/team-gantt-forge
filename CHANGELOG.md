@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Phase 2 in progress. Upcoming: Scope (WBS tree), Roadmap (quarterly zoom).
 
+## [1.1.1] - 2026-04-13
+
+### Fixed
+
+- **CSP violation on load** — Forge's strict Content-Security-Policy was blocking the inline `<style>` block in `public/index.html`. Moved those styles (box-sizing reset, spinner keyframes, scrollbar skins) into a `src/styles.css` file imported by `index.js`, which react-scripts extracts into a hashed `.css` bundle served from Forge's allowed origin. No visual change; the CSP error in the console is gone.
+- **Event title leaked into Milestone name** when switching the Add Event modal's Type from a built-in type (On-Call / Vacation / OOO) to Milestone or Custom: the pre-filled "On-Call" label stayed in the title field. Title is now cleared when it matches a built-in label, but preserved if the user has started typing their own milestone name.
+
 ## [1.1.0] - 2026-04-13
 
 ### Added

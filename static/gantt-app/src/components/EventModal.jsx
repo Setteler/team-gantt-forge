@@ -49,9 +49,20 @@ export default function EventModal({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Auto-fill title for non-custom/non-milestone types
+  // Auto-fill title based on type. For built-in types, use the type label.
+  // For custom / milestone (user-authored titles), clear any auto-filled
+  // label from a previously-selected built-in type so it doesn't leak in.
   useEffect(() => {
-    if (type !== 'custom' && type !== 'milestone') {
+    if (type === 'custom' || type === 'milestone') {
+      // Only clear if the current title matches an auto-filled built-in label
+      // — otherwise preserve a user's in-progress edit.
+      setTitle(prev => {
+        const autoFillLabels = EVENT_TYPES
+          .filter(t => t.value !== 'custom' && t.value !== 'milestone')
+          .map(t => t.label.replace(/^[^\s]+\s?/, '').trim());
+        return autoFillLabels.includes(prev) ? '' : prev;
+      });
+    } else {
       const typeObj = EVENT_TYPES.find(t => t.value === type);
       if (typeObj) setTitle(typeObj.label.replace(/^[^\s]+\s?/, '').trim());
     }
