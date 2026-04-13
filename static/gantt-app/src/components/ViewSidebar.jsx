@@ -23,9 +23,20 @@ function ListIcon({ size = 14, color = 'currentColor' }) {
   );
 }
 
+function TreeIcon({ size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="1" y="2" width="9" height="2" rx="1" fill={color} opacity="0.85"/>
+      <rect x="3.5" y="6" width="8" height="2" rx="1" fill={color} opacity="0.7"/>
+      <rect x="6" y="10" width="6.5" height="2" rx="1" fill={color} opacity="0.55"/>
+    </svg>
+  );
+}
+
 const VIEW_TYPE_META = {
   timeline: { label: 'Gantt', Icon: TimelineIcon, color: '#0073ea' },
   list:     { label: 'List',  Icon: ListIcon,     color: '#00854d' },
+  tree:     { label: 'Tree',  Icon: TreeIcon,     color: '#FF8B00' },
 };
 
 const BOX_TYPE_META = {
@@ -497,7 +508,7 @@ export default function ViewSidebar({
           />
           {/* View type toggle */}
           <div style={{ display: 'flex', gap: '4px' }}>
-            {['timeline', 'list'].map(vt => {
+            {['timeline', 'list', 'tree'].map(vt => {
               const { label, Icon } = VIEW_TYPE_META[vt];
               const active = newViewType === vt;
               return (

@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 2 in progress. Upcoming: Scope (WBS tree), Roadmap (quarterly zoom).
+Phase 2 in progress. Upcoming: Roadmap (quarterly zoom). Phase 3: Teams, Resources, Risks.
+
+## [1.2.0] - 2026-04-13
+
+### Added
+
+- **Scope / WBS tree view** — third view type alongside Timeline and List. Renders Jira issues as a hierarchical tree using the `parent` field (with fallback to `customfield_10014` / Epic Link for company-managed projects). Each row shows issue key, summary, status, date range, and assignee. Parents have a ▸/▾ expand toggle and can show a rolled-up date range (min start → max end across descendants) when collapsed. "Expand all" / "Collapse all" button. Cycles in the parent graph are detected and handled safely. Pick "Tree" when creating a view, or switch to it from the Configure panel. Backend `getIssues` now also returns `parent` and `customfield_10014`.
 
 ## [1.1.1] - 2026-04-13
 

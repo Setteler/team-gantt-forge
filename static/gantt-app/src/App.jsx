@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
+import TreeView from './components/TreeView';
 import ViewSidebar from './components/ViewSidebar';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
@@ -495,7 +496,7 @@ export default function App() {
         <span style={styles.appTitle}>Team Gantt</span>
         {activeView && (
           <span style={styles.viewName}>
-            {viewType === 'list' ? '≡ ' : '▤ '}{activeView.name}
+            {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : '▤ '}{activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
           </span>
         )}
@@ -610,6 +611,18 @@ export default function App() {
               groupByField2Label={groupByField2Label}
               groupOptions1={groupOptions1}
               groupOptions2={groupOptions2}
+              onEditEvent={openEditEvent}
+              onAddEvent={openCreateEvent}
+              onSaveEvent={saveEvent}
+            />
+          ) : viewType === 'tree' ? (
+            <TreeView
+              issues={issues}
+              customEvents={customEvents}
+              availableFields={availableFields}
+              startDateField={startDateField}
+              endDateField={endDateField}
+              listFields={listFields}
               onEditEvent={openEditEvent}
               onAddEvent={openCreateEvent}
               onSaveEvent={saveEvent}
