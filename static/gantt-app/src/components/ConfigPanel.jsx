@@ -102,6 +102,8 @@ export default function ConfigPanel({
   onCreateBaseline,
   onDeleteBaseline,
   onSetActiveBaseline,
+  holidays,
+  onSaveHolidays,
 }) {
   const [fieldSearch1, setFieldSearch1]   = useState('');
   const [fieldSearch2, setFieldSearch2]   = useState('');
@@ -109,6 +111,8 @@ export default function ConfigPanel({
   const [dateSearch2, setDateSearch2]     = useState('');
   const [colSearch, setColSearch]         = useState('');
   const [baselineName, setBaselineName]   = useState('');
+  const [newHolidayDate, setNewHolidayDate] = useState('');
+  const [newHolidayName, setNewHolidayName] = useState('');
 
   const isList = viewType === 'list';
 
@@ -363,6 +367,85 @@ export default function ConfigPanel({
             </div>
           </div>
         )}
+
+        {/* Working Calendar / Holidays */}
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            Working Calendar / Holidays
+            <span style={styles.selectedCount}> ({(holidays || []).length} holiday{(holidays || []).length !== 1 ? 's' : ''})</span>
+          </div>
+
+          {/* Add holiday form */}
+          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+            <input
+              type="date"
+              style={{ flex: '0 0 130px', border: '1px solid #DFE1E6', borderRadius: '4px', padding: '6px 8px', fontSize: '12px', color: '#172B4D', outline: 'none', boxSizing: 'border-box' }}
+              value={newHolidayDate}
+              onChange={e => setNewHolidayDate(e.target.value)}
+            />
+            <input
+              style={{ flex: 1, border: '1px solid #DFE1E6', borderRadius: '4px', padding: '6px 8px', fontSize: '12px', color: '#172B4D', outline: 'none', boxSizing: 'border-box' }}
+              placeholder="Holiday name..."
+              value={newHolidayName}
+              onChange={e => setNewHolidayName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && newHolidayDate && newHolidayName.trim() && onSaveHolidays) {
+                  const updated = [...(holidays || []), { date: newHolidayDate, name: newHolidayName.trim() }];
+                  onSaveHolidays(updated);
+                  setNewHolidayDate('');
+                  setNewHolidayName('');
+                }
+              }}
+            />
+            <button
+              style={{
+                background: '#0052CC', color: '#fff', border: 'none', borderRadius: '4px',
+                padding: '6px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+                opacity: newHolidayDate && newHolidayName.trim() ? 1 : 0.5,
+                whiteSpace: 'nowrap',
+              }}
+              disabled={!newHolidayDate || !newHolidayName.trim()}
+              onClick={() => {
+                if (newHolidayDate && newHolidayName.trim() && onSaveHolidays) {
+                  const updated = [...(holidays || []), { date: newHolidayDate, name: newHolidayName.trim() }];
+                  onSaveHolidays(updated);
+                  setNewHolidayDate('');
+                  setNewHolidayName('');
+                }
+              }}
+            >Add</button>
+          </div>
+
+          {/* Holiday list */}
+          {(holidays || []).length > 0 && (
+            <div style={{ border: '1px solid #DFE1E6', borderRadius: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+              {[...(holidays || [])].sort((a, b) => a.date.localeCompare(b.date)).map(h => (
+                <div key={h.date} style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px',
+                  borderBottom: '1px solid #F4F5F7', fontSize: '12px',
+                }}>
+                  <span style={{ fontWeight: 600, color: '#BF2040', fontFamily: 'monospace', fontSize: '11px', flexShrink: 0 }}>{h.date}</span>
+                  <span style={{ flex: 1, color: '#172B4D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.name}</span>
+                  <button
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#97A0AF', padding: '2px', flexShrink: 0 }}
+                    onClick={() => {
+                      if (onSaveHolidays) {
+                        onSaveHolidays((holidays || []).filter(x => x.date !== h.date));
+                      }
+                    }}
+                    title="Remove holiday"
+                  >✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(holidays || []).length === 0 && (
+            <div style={{ fontSize: '11px', color: '#97A0AF', padding: '2px 0' }}>
+              No holidays configured. Add dates to shade them on the timeline.
+            </div>
+          )}
+        </div>
 
         {/* Baselines */}
         <div style={styles.section}>

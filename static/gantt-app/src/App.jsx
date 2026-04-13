@@ -82,6 +82,9 @@ export default function App() {
   const [baselines, setBaselines]             = useState([]);
   const [activeBaselineId, setActiveBaselineId] = useState(null);
 
+  // ── Holidays (global) ─────────────────────────────────────────────────────
+  const [holidays, setHolidays] = useState([]);
+
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
@@ -89,7 +92,9 @@ export default function App() {
       invoke('getProjects'),
       invoke('getFolders'),
       invoke('getFields'),
-    ]).then(([viewsData, projectsData, foldersData, fieldsData]) => {
+      invoke('getHolidays'),
+    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData]) => {
+      setHolidays(holidaysData || []);
       const loadedViews = viewsData || [];
       setViews(loadedViews);
       setFolders(foldersData || []);
@@ -433,6 +438,12 @@ export default function App() {
     if (activeBaselineId === id) setActiveBaselineId(null);
   }
 
+  // ── Holiday management (global) ────────────────────────────────────────────
+  async function saveHolidaysList(updatedList) {
+    const saved = await invoke('saveHolidays', { holidays: updatedList });
+    setHolidays(saved || []);
+  }
+
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
     setVisYear(year);
@@ -612,6 +623,7 @@ export default function App() {
               availableFields={availableFields}
               showCriticalPath={showCriticalPath}
               activeBaseline={activeBaseline}
+              holidays={holidays}
             />
           )}
         </div>
@@ -651,6 +663,8 @@ export default function App() {
             onCreateBaseline={createBaseline}
             onDeleteBaseline={deleteBaseline}
             onSetActiveBaseline={setActiveBaselineId}
+            holidays={holidays}
+            onSaveHolidays={saveHolidaysList}
           />
         )}
       </div>

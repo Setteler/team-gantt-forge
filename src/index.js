@@ -235,6 +235,31 @@ resolver.define('migrateViewBaselines', async ({ payload }) => {
   return { success: true };
 });
 
+// ── Holidays (global — same across all views/users) ─────────────────────────
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+resolver.define('getHolidays', async () => {
+  const holidays = (await storage.get('gantt_holidays')) || [];
+  return holidays.sort((a, b) => a.date.localeCompare(b.date));
+});
+
+resolver.define('saveHolidays', async ({ payload }) => {
+  const { holidays } = payload;
+  if (!Array.isArray(holidays)) return [];
+
+  // Validate, dedupe by date (last wins), and sort
+  const seen = new Map();
+  for (const h of holidays) {
+    if (!h || typeof h.date !== 'string' || !DATE_RE.test(h.date)) continue;
+    seen.set(h.date, { date: h.date, name: String(h.name || '').trim() || 'Holiday' });
+  }
+
+  const sorted = Array.from(seen.values()).sort((a, b) => a.date.localeCompare(b.date));
+  await storage.set('gantt_holidays', sorted);
+  return sorted;
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

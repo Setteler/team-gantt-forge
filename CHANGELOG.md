@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-BigPicture-parity work in progress. Upcoming: working calendar, Boxes (portfolio hierarchy).
+Phase 1 (Gantt parity with BigPicture) is complete. Upcoming Phase 2: Boxes (portfolio hierarchy), Scope/WBS tree, Roadmap (quarterly zoom).
+
+## [1.0.6] - 2026-04-13
+
+### Added
+
+- **Working calendar / holidays** — define a global list of holidays (date + name) in the Configure panel. Holidays appear as pink shaded columns on the timeline (overriding weekend gray on overlapping days), with the holiday name as a hover tooltip in the header. Storage is global (single calendar across all views and users).
+- New backend resolvers: `getHolidays`, `saveHolidays`.
 
 ## [1.0.5] - 2026-04-13
 

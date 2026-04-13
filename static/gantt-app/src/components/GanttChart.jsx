@@ -186,6 +186,7 @@ export default function GanttChart({
   onPreviewIssue, previewFields, availableFields,
   showCriticalPath,
   activeBaseline,
+  holidays,
 }) {
   const scrollRef     = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -211,6 +212,15 @@ export default function GanttChart({
   const totalDays   = daysBetween(bufferStart, bufferEnd) + 1;
   const totalWidth  = totalDays * DAY_WIDTH;
   const todayOff    = daysBetween(bufferStart, today) * DAY_WIDTH;
+
+  // Holiday lookup map: 'YYYY-MM-DD' → name
+  const holidaySet = useMemo(() => {
+    const m = new Map();
+    for (const h of (holidays || [])) {
+      if (h && h.date) m.set(h.date, h.name || 'Holiday');
+    }
+    return m;
+  }, [holidays]);
 
   // Scroll to target when it changes (navigation arrows / Today button)
   useEffect(() => {
@@ -595,14 +605,16 @@ export default function GanttChart({
       const d = addDays(bufferStart, i);
       const isToday   = daysBetween(today, d) === 0;
       const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+      const holidayName = holidaySet.get(fmtISODate(d));
+      const isHoliday = !!holidayName;
       // Day cell absolute-positioned at its correct offset
       dayEls.push(
-        <div key={i} style={{
+        <div key={i} title={isHoliday ? holidayName : undefined} style={{
           ...styles.dayCell, left: i * DAY_WIDTH,
-          background: isToday ? '#0073ea' : isWeekend ? 'transparent' : 'transparent',
+          background: isToday ? '#0073ea' : isHoliday ? '#FFE0E6' : 'transparent',
           fontWeight: isToday ? 700 : 400,
-          color: isToday ? '#fff' : isWeekend ? '#c3c6d4' : '#676879',
-          borderRadius: isToday ? '6px' : '0',
+          color: isToday ? '#fff' : isHoliday ? '#BF2040' : isWeekend ? '#c3c6d4' : '#676879',
+          borderRadius: isToday ? '6px' : isHoliday ? '6px' : '0',
         }}>
           <div style={styles.dayName}>{['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()]}</div>
           <div style={styles.dayNum}>{d.getDate()}</div>
@@ -634,13 +646,32 @@ export default function GanttChart({
       for (let i = visRange.from; i <= visRange.to && i < totalDays; i++) {
         const d = addDays(bufferStart, i);
         if (d.getDay() === 0 || d.getDay() === 6) {
-          out.push(<div key={i} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: '#f8f8fb', pointerEvents: 'none' }} />);
+          // Skip weekend shading for days that are also holidays (holiday takes priority)
+          if (!holidaySet.has(fmtISODate(d))) {
+            out.push(<div key={i} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: '#f8f8fb', pointerEvents: 'none' }} />);
+          }
         }
       }
       return out;
     }
     return { group: make(GROUP_HEIGHT), sub: make(SUB_HEIGHT), item: make(ITEM_HEIGHT) };
-  }, [visRange.from, visRange.to]);
+  }, [visRange.from, visRange.to, holidaySet]);
+
+  // Memoize holiday shading — one div per visible holiday day
+  const holidayShadingByHeight = useMemo(() => {
+    if (holidaySet.size === 0) return { group: [], sub: [], item: [] };
+    function make(rowH) {
+      const out = [];
+      for (let i = visRange.from; i <= visRange.to && i < totalDays; i++) {
+        const d = addDays(bufferStart, i);
+        if (holidaySet.has(fmtISODate(d))) {
+          out.push(<div key={`h${i}`} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: '#FFEBEE', pointerEvents: 'none' }} />);
+        }
+      }
+      return out;
+    }
+    return { group: make(GROUP_HEIGHT), sub: make(SUB_HEIGHT), item: make(ITEM_HEIGHT) };
+  }, [visRange.from, visRange.to, holidaySet]);
 
   const todayLineEl = useMemo(() =>
     todayOff >= 0 && todayOff <= totalWidth
@@ -738,6 +769,7 @@ export default function GanttChart({
                 return (
                   <div key={`rG-${row.g1}`} style={{ position: 'relative', height: GROUP_HEIGHT, background: row.color.bg, borderBottom: `1px solid ${row.color.border}20`, opacity: 0.8 }}>
                     {weekendShadingByHeight.group}
+                    {holidayShadingByHeight.group}
                     {todayLineEl}
                     <RollupBar s={row.rollup.s} e={row.rollup.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={10} />
                   </div>
@@ -749,6 +781,7 @@ export default function GanttChart({
                     onMouseDown={(e) => handleBgMouseDown(e, row.g1, row.g2)}
                   >
                     {weekendShadingByHeight.sub}
+                    {holidayShadingByHeight.sub}
                     {todayLineEl}
                     <RollupBar s={row.rollup.s} e={row.rollup.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={8} />
                     {createDrag?.g1 === row.g1 && createDrag?.g2 === row.g2 && (
@@ -768,6 +801,7 @@ export default function GanttChart({
                     onMouseDown={(e) => handleBgMouseDown(e, row.g1, row.g2)}
                   />
                   {weekendShadingByHeight.item}
+                  {holidayShadingByHeight.item}
                   {todayLineEl}
                   {/* Ghost baseline bars — rendered before current bars so they sit behind */}
                   {activeBaseline && row.items.map(item => {
