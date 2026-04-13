@@ -262,7 +262,11 @@ export default function App() {
     const currentView = views.find(v => v.id === activeViewId);
     const boxJql = resolveBoxJql(currentView, folders);
     if (selectedProjects.length > 0 || customJql || boxJql) fetchIssues();
-    else setLoading(false);
+    else {
+      // No data source → clear stale issues from the previous view
+      setIssues([]);
+      setLoading(false);
+    }
   }, [fetchIssues]);
 
   // ── View management ───────────────────────────────────────────────────────

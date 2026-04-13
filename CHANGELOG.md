@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 5 starting. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or polish — drag on the new Project view, dependency arrows on it, critical path on it.
+Polish in progress. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or feature parity on Project view (drag/arrows/critical path).
+
+## [1.10.1] - 2026-04-13
+
+### Fixed
+
+- **Stale issues shown after switching to a view with no data source.** When a user switched from a view backed by a JQL filter (or Box-inherited JQL) to a view with empty filter / no projects / no parent-Box JQL, the previous view's issues remained visible. The useEffect early-return only cleared loading state, not the `issues` array. Now cleared explicitly so the empty-state ("No issues found") renders correctly for such views.
 
 ## [1.10.0] - 2026-04-13
 
