@@ -115,6 +115,9 @@ export default function ConfigPanel({
   const [newHolidayName, setNewHolidayName] = useState('');
 
   const isList = viewType === 'list';
+  // Tree and Project views organize issues by the Jira `parent` field
+  // (or Epic Link as fallback) — not by a configurable group-by field.
+  const isHierarchical = viewType === 'tree' || viewType === 'project';
 
   function toggleProject(key) {
     if (selectedProjects.includes(key)) {
@@ -201,33 +204,35 @@ export default function ConfigPanel({
           </div>
         )}
 
-        {/* Data source toggle */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Data source</div>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            {[
-              { value: false, label: '⬡ Jira issues + Events' },
-              { value: true,  label: '★ Events only' },
-            ].map(opt => (
-              <button
-                key={String(opt.value)}
-                style={{
-                  flex: 1, border: '1px solid', borderRadius: '4px', padding: '6px 8px',
-                  cursor: 'pointer', fontSize: '12px', fontWeight: 600,
-                  background: eventsOnly === opt.value ? '#0052CC' : '#fff',
-                  color: eventsOnly === opt.value ? '#fff' : '#6B778C',
-                  borderColor: eventsOnly === opt.value ? '#0052CC' : '#DFE1E6',
-                }}
-                onClick={() => onEventsOnlyChange(opt.value)}
-              >{opt.label}</button>
-            ))}
-          </div>
-          {eventsOnly && (
-            <div style={{ fontSize: '11px', color: '#6B778C', background: '#f4f5f7', borderRadius: '4px', padding: '6px 10px' }}>
-              Jira issues are hidden. Only custom events saved to this view will appear.
+        {/* Data source toggle — hidden for hierarchical views (they don't render events) */}
+        {!isHierarchical && (
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Data source</div>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              {[
+                { value: false, label: '⬡ Jira issues + Events' },
+                { value: true,  label: '★ Events only' },
+              ].map(opt => (
+                <button
+                  key={String(opt.value)}
+                  style={{
+                    flex: 1, border: '1px solid', borderRadius: '4px', padding: '6px 8px',
+                    cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+                    background: eventsOnly === opt.value ? '#0052CC' : '#fff',
+                    color: eventsOnly === opt.value ? '#fff' : '#6B778C',
+                    borderColor: eventsOnly === opt.value ? '#0052CC' : '#DFE1E6',
+                  }}
+                  onClick={() => onEventsOnlyChange(opt.value)}
+                >{opt.label}</button>
+              ))}
             </div>
-          )}
-        </div>
+            {eventsOnly && (
+              <div style={{ fontSize: '11px', color: '#6B778C', background: '#f4f5f7', borderRadius: '4px', padding: '6px 10px' }}>
+                Jira issues are hidden. Only custom events saved to this view will appear.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* JQL Filter — hidden when events-only */}
         {!eventsOnly && <div style={styles.section}>
@@ -279,32 +284,43 @@ export default function ConfigPanel({
           </div>
         )}
 
-        {/* Group by — shown for all view types */}
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Group rows by (first level)</div>
-          <FieldSelect
-            value={groupByField1}
-            onChange={onGroupByField1Change}
-            search={fieldSearch1}
-            onSearchChange={setFieldSearch1}
-            placeholder="Search fields…"
-            sysFields={systemFields}
-            custFields={customFields}
-          />
-        </div>
+        {/* Group by — hidden for Tree/Project (they use Jira's parent hierarchy) */}
+        {isHierarchical ? (
+          <div style={styles.section}>
+            <div style={{ fontSize: '11px', color: '#6B778C', background: '#f4f5f7', borderRadius: '4px', padding: '8px 10px' }}>
+              {viewType === 'tree' ? 'Tree' : 'Project'} views organize issues by the Jira <b>parent</b> field
+              (falling back to Epic Link for company-managed projects). Group-by is not used here.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Group rows by (first level)</div>
+              <FieldSelect
+                value={groupByField1}
+                onChange={onGroupByField1Change}
+                search={fieldSearch1}
+                onSearchChange={setFieldSearch1}
+                placeholder="Search fields…"
+                sysFields={systemFields}
+                custFields={customFields}
+              />
+            </div>
 
-        <div style={styles.section}>
-          <div style={styles.sectionTitle}>Group rows by (second level)</div>
-          <FieldSelect
-            value={groupByField2}
-            onChange={onGroupByField2Change}
-            search={fieldSearch2}
-            onSearchChange={setFieldSearch2}
-            placeholder="Search fields…"
-            sysFields={systemFields}
-            custFields={customFields}
-          />
-        </div>
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Group rows by (second level)</div>
+              <FieldSelect
+                value={groupByField2}
+                onChange={onGroupByField2Change}
+                search={fieldSearch2}
+                onSearchChange={setFieldSearch2}
+                placeholder="Search fields…"
+                sysFields={systemFields}
+                custFields={customFields}
+              />
+            </div>
+          </>
+        )}
 
         {/* Timeline-only: date fields */}
         {!isList && (

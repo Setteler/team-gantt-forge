@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Polish in progress. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or feature parity on Project view (drag/arrows/critical path).
 
+## [1.10.2] - 2026-04-13
+
+### Fixed
+
+- **Configure panel showed irrelevant options for hierarchical views.** Tree and Project views organize issues by Jira's `parent` field (with Epic Link fallback) — there is no group-by, and they don't render custom events. Previously the Configure panel still showed the two "Group rows by" field selectors and the "Data source" toggle. Now:
+  - For Tree / Project: group-by sections are replaced by a short note explaining hierarchy comes from the parent field; data-source toggle is hidden.
+  - For Timeline / List / Roadmap: unchanged.
+
 ## [1.10.1] - 2026-04-13
 
 ### Fixed
