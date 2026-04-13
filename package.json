@@ -1,6 +1,6 @@
 {
   "name": "team-gantt-forge",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Team Gantt — Jira Forge app replacing Airtable Gantt and BigPicture (Phase 1 + Boxes portfolio hierarchy)",
   "dependencies": {
     "@forge/api": "^3.0.0",

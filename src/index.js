@@ -315,6 +315,34 @@ resolver.define('deleteRisk', async ({ payload }) => {
   return { success: true };
 });
 
+// ── Objectives (OKRs) ──────────────────────────────────────────────────────────
+
+resolver.define('getObjectives', async () => {
+  return (await storage.get('gantt_objectives')) || [];
+});
+
+resolver.define('saveObjective', async ({ payload }) => {
+  const { objective } = payload;
+  const objectives = (await storage.get('gantt_objectives')) || [];
+  if (objective.id) {
+    const idx = objectives.findIndex(o => o.id === objective.id);
+    if (idx >= 0) objectives[idx] = objective; else objectives.push(objective);
+  } else {
+    objective.id = `obj-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    objective.createdAt = objective.createdAt || Date.now();
+    objectives.push(objective);
+  }
+  await storage.set('gantt_objectives', objectives);
+  return objective;
+});
+
+resolver.define('deleteObjective', async ({ payload }) => {
+  const { id } = payload;
+  const objectives = (await storage.get('gantt_objectives')) || [];
+  await storage.set('gantt_objectives', objectives.filter(o => o.id !== id));
+  return { success: true };
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

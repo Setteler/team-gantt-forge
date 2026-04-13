@@ -7,6 +7,7 @@ import RoadmapView from './components/RoadmapView';
 import ViewSidebar from './components/ViewSidebar';
 import TeamsModule from './components/TeamsModule';
 import RisksModule from './components/RisksModule';
+import ObjectivesModule from './components/ObjectivesModule';
 import ResourcesModule from './components/ResourcesModule';
 import ReportsModule from './components/ReportsModule';
 import EventModal from './components/EventModal';
@@ -95,6 +96,7 @@ export default function App() {
   const [activeModuleId, setActiveModuleId] = useState(null);
   const [teams, setTeams] = useState([]);
   const [risks, setRisks] = useState([]);
+  const [objectives, setObjectives] = useState([]);
 
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
@@ -106,10 +108,12 @@ export default function App() {
       invoke('getHolidays'),
       invoke('getTeams'),
       invoke('getRisks'),
-    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData, risksData]) => {
+      invoke('getObjectives'),
+    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData, risksData, objectivesData]) => {
       setHolidays(holidaysData || []);
       setTeams(teamsData || []);
       setRisks(risksData || []);
+      setObjectives(objectivesData || []);
       const loadedViews = viewsData || [];
       setViews(loadedViews);
       setFolders(foldersData || []);
@@ -504,6 +508,21 @@ export default function App() {
     setRisks(prev => prev.filter(r => r.id !== id));
   }
 
+  // ── Objective management ───────────────────────────────────────────────────
+  async function saveObjective(objData) {
+    const saved = await invoke('saveObjective', { objective: objData });
+    setObjectives(prev => {
+      const idx = prev.findIndex(o => o.id === saved.id);
+      if (idx >= 0) return prev.map(o => o.id === saved.id ? saved : o);
+      return [...prev, saved];
+    });
+  }
+
+  async function deleteObjective(id) {
+    await invoke('deleteObjective', { id });
+    setObjectives(prev => prev.filter(o => o.id !== id));
+  }
+
   // ── Module selection ──────────────────────────────────────────────────────
   function handleSelectModule(moduleId) {
     setActiveModuleId(moduleId || null);
@@ -552,6 +571,8 @@ export default function App() {
           <span style={styles.viewName}>&#128101; Teams</span>
         ) : activeModuleId === 'risks' ? (
           <span style={styles.viewName}>&#9888;&#65039; Risks</span>
+        ) : activeModuleId === 'objectives' ? (
+          <span style={styles.viewName}>&#127919; Objectives</span>
         ) : activeModuleId === 'resources' ? (
           <span style={styles.viewName}>&#128202; Resources</span>
         ) : activeModuleId === 'reports' ? (
@@ -656,6 +677,8 @@ export default function App() {
             <TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} />
           ) : activeModuleId === 'risks' ? (
             <RisksModule risks={risks} onSaveRisk={saveRisk} onDeleteRisk={deleteRisk} />
+          ) : activeModuleId === 'objectives' ? (
+            <ObjectivesModule objectives={objectives} issues={issues} onSaveObjective={saveObjective} onDeleteObjective={deleteObjective} />
           ) : activeModuleId === 'resources' ? (
             <ResourcesModule issues={issues} teams={teams} startDateField={startDateField} endDateField={endDateField} />
           ) : activeModuleId === 'reports' ? (

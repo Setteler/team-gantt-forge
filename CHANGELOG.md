@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 4 in progress. Upcoming: Objectives/OKRs, Box-scoped JQL.
+Phase 4 continuing. Upcoming: Box-scoped JQL (Boxes finally matter for data).
+
+## [1.8.0] - 2026-04-13
+
+### Added
+
+- **Objectives / OKRs module** — lightweight OKRs with linked Jira issues and auto-rolled-up progress. Each objective has title, timeframe, owner, status (active / achieved / missed / archived), and N Key Results. Each KR can compute progress **automatically** (% of its linked issues in Done status) or use a **manual** 0–100% override. Objective progress is the average across its KRs. Card layout with status badges, progress bars per objective and per KR, status filter. Stored in KVS under `gantt_objectives` (global). 🎯 icon in MODULES sidebar.
+- Backend: `getObjectives`, `saveObjective`, `deleteObjective` resolvers.
 
 ## [1.7.0] - 2026-04-13
 

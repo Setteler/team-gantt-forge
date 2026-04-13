@@ -65,6 +65,7 @@ const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
 const MODULES = [
   { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65' },
   { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F' },
+  { id: 'objectives', label: 'Objectives', icon: '\uD83C\uDFAF' },
   { id: 'resources', label: 'Resources', icon: '\uD83D\uDCCA' },
   { id: 'reports', label: 'Reports', icon: '\uD83D\uDCC8' },
 ];
