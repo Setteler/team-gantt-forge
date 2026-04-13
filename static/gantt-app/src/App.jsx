@@ -3,6 +3,7 @@ import { invoke } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
 import TreeView from './components/TreeView';
+import RoadmapView from './components/RoadmapView';
 import ViewSidebar from './components/ViewSidebar';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
@@ -496,7 +497,7 @@ export default function App() {
         <span style={styles.appTitle}>Team Gantt</span>
         {activeView && (
           <span style={styles.viewName}>
-            {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : '▤ '}{activeView.name}
+            {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : '▤ '}{activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
           </span>
         )}
@@ -626,6 +627,17 @@ export default function App() {
               onEditEvent={openEditEvent}
               onAddEvent={openCreateEvent}
               onSaveEvent={saveEvent}
+            />
+          ) : viewType === 'roadmap' ? (
+            <RoadmapView
+              issues={issues}
+              today={today}
+              groupByField1={groupByField1}
+              groupByField2={groupByField2}
+              groupByField1Label={groupByField1Label}
+              groupByField2Label={groupByField2Label}
+              startDateField={startDateField}
+              endDateField={endDateField}
             />
           ) : (
             <GanttChart

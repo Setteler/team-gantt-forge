@@ -33,10 +33,24 @@ function TreeIcon({ size = 14, color = 'currentColor' }) {
   );
 }
 
+function RoadmapIcon({ size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+      <rect x="1" y="2" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
+      <rect x="1" y="6" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
+      <rect x="1" y="10" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
+      <rect x="2" y="2.5" width="5" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
+      <rect x="4" y="6.5" width="7" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
+      <rect x="1.5" y="10.5" width="4" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
+    </svg>
+  );
+}
+
 const VIEW_TYPE_META = {
-  timeline: { label: 'Gantt', Icon: TimelineIcon, color: '#0073ea' },
-  list:     { label: 'List',  Icon: ListIcon,     color: '#00854d' },
-  tree:     { label: 'Tree',  Icon: TreeIcon,     color: '#FF8B00' },
+  timeline: { label: 'Gantt',    Icon: TimelineIcon, color: '#0073ea' },
+  list:     { label: 'List',     Icon: ListIcon,     color: '#00854d' },
+  tree:     { label: 'Tree',     Icon: TreeIcon,     color: '#FF8B00' },
+  roadmap:  { label: 'Roadmap',  Icon: RoadmapIcon,  color: '#6554C0' },
 };
 
 const BOX_TYPE_META = {
@@ -508,7 +522,7 @@ export default function ViewSidebar({
           />
           {/* View type toggle */}
           <div style={{ display: 'flex', gap: '4px' }}>
-            {['timeline', 'list', 'tree'].map(vt => {
+            {['timeline', 'list', 'tree', 'roadmap'].map(vt => {
               const { label, Icon } = VIEW_TYPE_META[vt];
               const active = newViewType === vt;
               return (

@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 2 in progress. Upcoming: Roadmap (quarterly zoom). Phase 3: Teams, Resources, Risks.
+Phase 2 complete. Phase 3 coming: Teams, Resources (capacity heatmap), Risks (register + 5×5 matrix).
+
+## [1.3.0] - 2026-04-13
+
+### Added
+
+- **Roadmap view** — fourth view type (alongside Timeline / List / Tree). Renders the same Jira issue data as the Gantt but at **quarterly zoom** for portfolio-level overview: 8-year span centered on today, one column per quarter, smooth sub-quarter bar positioning, two-level grouping (same as Gantt), today line at the current quarter. Read-only: no drag, no arrows, no custom events, no drag-create — just the overview. Purple ▧ icon. Pick "Roadmap" when creating a view.
 
 ## [1.2.0] - 2026-04-13
 

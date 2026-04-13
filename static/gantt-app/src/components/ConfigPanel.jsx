@@ -152,6 +152,7 @@ export default function ConfigPanel({
               { value: 'timeline', label: '▤ Timeline' },
               { value: 'list',     label: '≡ List' },
               { value: 'tree',     label: '⊞ Tree' },
+              { value: 'roadmap',  label: '▧ Roadmap' },
             ].map(opt => (
               <button
                 key={opt.value}
