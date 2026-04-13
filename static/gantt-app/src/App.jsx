@@ -299,9 +299,9 @@ export default function App() {
     setShowConfig(false);
   }
 
-  // ── Folder management ─────────────────────────────────────────────────────
-  async function createFolder(name) {
-    const saved = await invoke('saveFolder', { folder: { name } });
+  // ── Folder / Box management ────────────────────────────────────────────────
+  async function createFolder(name, boxType = 'custom', parentId = null) {
+    const saved = await invoke('saveFolder', { folder: { name, boxType, parentId } });
     setFolders(prev => [...prev, saved]);
     return saved;
   }
@@ -316,8 +316,21 @@ export default function App() {
 
   async function deleteFolder(folderId) {
     await invoke('deleteFolder', { id: folderId });
-    setFolders(prev => prev.filter(f => f.id !== folderId));
+    setFolders(prev => {
+      // Remove the folder, un-parent its children
+      return prev
+        .filter(f => f.id !== folderId)
+        .map(f => f.parentId === folderId ? { ...f, parentId: null } : f);
+    });
     setViews(prev => prev.map(v => v.folderId === folderId ? { ...v, folderId: null } : v));
+  }
+
+  async function moveBoxToParent(boxId, newParentId) {
+    const folder = folders.find(f => f.id === boxId);
+    if (!folder) return;
+    const updated = { ...folder, parentId: newParentId || null };
+    await invoke('saveFolder', { folder: updated });
+    setFolders(prev => prev.map(f => f.id === boxId ? updated : f));
   }
 
   // ── Custom event CRUD ─────────────────────────────────────────────────────
@@ -567,6 +580,7 @@ export default function App() {
             onCreateFolder={createFolder}
             onRenameFolder={renameFolder}
             onDeleteFolder={deleteFolder}
+            onMoveBoxToParent={moveBoxToParent}
           />
         )}
 

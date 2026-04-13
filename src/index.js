@@ -320,7 +320,8 @@ resolver.define('deleteView', async ({ payload }) => {
 // ── Folders ───────────────────────────────────────────────────────────────────
 
 resolver.define('getFolders', async () => {
-  return (await storage.get('gantt_folders')) || [];
+  const folders = (await storage.get('gantt_folders')) || [];
+  return folders.map(f => ({ boxType: 'custom', parentId: null, ...f }));
 });
 
 resolver.define('saveFolder', async ({ payload }) => {
@@ -340,10 +341,17 @@ resolver.define('saveFolder', async ({ payload }) => {
 resolver.define('deleteFolder', async ({ payload }) => {
   const { id } = payload;
   const folders = (await storage.get('gantt_folders')) || [];
-  await storage.set('gantt_folders', folders.filter(f => f.id !== id));
+  // Un-parent any child Boxes (set their parentId to null)
+  const remaining = folders
+    .filter(f => f.id !== id)
+    .map(f => (f.parentId === id ? { ...f, parentId: null } : f));
+  await storage.set('gantt_folders', remaining);
   const views = (await storage.get('gantt_views')) || [];
   await storage.set('gantt_views', views.map(v => v.folderId === id ? { ...v, folderId: null } : v));
   return { success: true };
 });
+
+// Note: re-parenting a Box is done via saveFolder (just updating its parentId).
+// No dedicated resolver needed — keeps the API surface smaller.
 
 export const handler = resolver.getDefinitions();

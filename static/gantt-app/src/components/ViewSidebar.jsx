@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 
 function TimelineIcon({ size = 14, color = 'currentColor' }) {
   return (
@@ -28,10 +28,20 @@ const VIEW_TYPE_META = {
   list:     { label: 'List',  Icon: ListIcon,     color: '#00854d' },
 };
 
+const BOX_TYPE_META = {
+  portfolio: { icon: '\uD83D\uDCCA', label: 'Portfolio', color: '#0073ea' },
+  program:   { icon: '\uD83D\uDCC1', label: 'Program',   color: '#6554C0' },
+  project:   { icon: '\uD83D\uDCC2', label: 'Project',   color: '#00875A' },
+  custom:    { icon: '\uD83D\uDDC2', label: '',           color: '#6B778C' },
+};
+
+const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
+
 export default function ViewSidebar({
   views, folders, activeViewId,
   onSwitch, onCreate, onRename, onDelete,
   onMoveToFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
+  onMoveBoxToParent,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newViewName, setNewViewName] = useState('');
@@ -43,14 +53,39 @@ export default function ViewSidebar({
 
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderBoxType, setNewFolderBoxType] = useState('custom');
+  const [newFolderParentId, setNewFolderParentId] = useState(null);
   const [renamingFolderId, setRenamingFolderId] = useState(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [hoveredFolderId, setHoveredFolderId] = useState(null);
   const [collapsedFolders, setCollapsedFolders] = useState(new Set());
 
-  // Drag-and-drop state
+  // Move menu state
+  const [moveMenuBoxId, setMoveMenuBoxId] = useState(null);
+
+  // View drag-and-drop state
   const [draggingViewId, setDraggingViewId] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null); // folderId or 'root'
+
+  // Box drag-and-drop state
+  const [draggingBoxId, setDraggingBoxId] = useState(null);
+  const [dragOverBoxTarget, setDragOverBoxTarget] = useState(null);
+
+  // ── Helpers: descendants for cycle prevention ─────────────────────────────
+  const getDescendantIds = useCallback((boxId) => {
+    const descendants = new Set();
+    const queue = [boxId];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      for (const f of folders) {
+        if ((f.parentId ?? null) === current && !descendants.has(f.id)) {
+          descendants.add(f.id);
+          queue.push(f.id);
+        }
+      }
+    }
+    return descendants;
+  }, [folders]);
 
   async function handleCreateView() {
     const name = newViewName.trim();
@@ -79,9 +114,18 @@ export default function ViewSidebar({
   async function handleCreateFolder() {
     const name = newFolderName.trim();
     if (!name) return;
-    await onCreateFolder(name);
+    await onCreateFolder(name, newFolderBoxType, newFolderParentId);
     setCreatingFolder(false);
     setNewFolderName('');
+    setNewFolderBoxType('custom');
+    setNewFolderParentId(null);
+  }
+
+  function startCreateChildBox(parentId) {
+    setNewFolderParentId(parentId);
+    setNewFolderBoxType('custom');
+    setNewFolderName('');
+    setCreatingFolder(true);
   }
 
   function toggleFolder(folderId) {
@@ -92,41 +136,237 @@ export default function ViewSidebar({
     });
   }
 
-  // ── Drag handlers ─────────────────────────────────────────────────────────
+  // ── Move Box handler ──────────────────────────────────────────────────────
+  function handleMoveBox(boxId, newParentId) {
+    if (onMoveBoxToParent) onMoveBoxToParent(boxId, newParentId);
+    setMoveMenuBoxId(null);
+  }
+
+  // ── View Drag handlers ────────────────────────────────────────────────────
   function handleDragStart(e, viewId) {
     setDraggingViewId(viewId);
+    setDraggingBoxId(null);
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `view:${viewId}`);
   }
 
   function handleDragEnd() {
     setDraggingViewId(null);
     setDragOverTarget(null);
+    setDraggingBoxId(null);
+    setDragOverBoxTarget(null);
   }
 
   function handleDragOverFolder(e, folderId) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverTarget(folderId);
+    if (draggingViewId) {
+      setDragOverTarget(folderId);
+    } else if (draggingBoxId) {
+      // Don't allow drop on self or descendant
+      const descendants = getDescendantIds(draggingBoxId);
+      if (folderId !== draggingBoxId && !descendants.has(folderId)) {
+        setDragOverBoxTarget(folderId);
+      }
+    }
   }
 
   function handleDragOverRoot(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverTarget('root');
+    if (draggingViewId) {
+      setDragOverTarget('root');
+    } else if (draggingBoxId) {
+      setDragOverBoxTarget('root');
+    }
   }
 
   function handleDropOnFolder(e, folderId) {
     e.preventDefault();
-    if (draggingViewId) onMoveToFolder(draggingViewId, folderId);
+    e.stopPropagation();
+    if (draggingViewId) {
+      onMoveToFolder(draggingViewId, folderId);
+    } else if (draggingBoxId) {
+      const descendants = getDescendantIds(draggingBoxId);
+      if (folderId !== draggingBoxId && !descendants.has(folderId)) {
+        handleMoveBox(draggingBoxId, folderId);
+      }
+    }
     setDraggingViewId(null);
     setDragOverTarget(null);
+    setDraggingBoxId(null);
+    setDragOverBoxTarget(null);
   }
 
   function handleDropOnRoot(e) {
     e.preventDefault();
     if (draggingViewId) onMoveToFolder(draggingViewId, null);
+    else if (draggingBoxId) handleMoveBox(draggingBoxId, null);
     setDraggingViewId(null);
     setDragOverTarget(null);
+    setDraggingBoxId(null);
+    setDragOverBoxTarget(null);
+  }
+
+  // ── Box Drag handlers ─────────────────────────────────────────────────────
+  function handleBoxDragStart(e, boxId) {
+    e.stopPropagation();
+    setDraggingBoxId(boxId);
+    setDraggingViewId(null);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', `box:${boxId}`);
+  }
+
+  // ── Recursive Box Tree Renderer ───────────────────────────────────────────
+  function renderBoxTree(parentId, depth, visited) {
+    const childFolders = folders.filter(f => (f.parentId ?? null) === parentId);
+    if (childFolders.length === 0 && parentId !== null) return null;
+
+    return childFolders.map(folder => {
+      // Cycle protection
+      if (visited.has(folder.id)) return null;
+      const nextVisited = new Set(visited);
+      nextVisited.add(folder.id);
+
+      const folderViews = views.filter(v => v.folderId === folder.id);
+      const isCollapsed = collapsedFolders.has(folder.id);
+      const isRenamingFolder = renamingFolderId === folder.id;
+      const isDragTarget = dragOverTarget === folder.id;
+      const isBoxDragTarget = dragOverBoxTarget === folder.id;
+      const boxMeta = BOX_TYPE_META[folder.boxType] || BOX_TYPE_META.custom;
+      const paddingLeft = 10 + depth * 16;
+
+      return (
+        <div
+          key={folder.id}
+          onDragOver={(e) => handleDragOverFolder(e, folder.id)}
+          onDrop={(e) => handleDropOnFolder(e, folder.id)}
+          onDragLeave={(e) => {
+            // Only clear if leaving this element (not entering a child)
+            if (!e.currentTarget.contains(e.relatedTarget)) {
+              if (dragOverTarget === folder.id) setDragOverTarget(null);
+              if (dragOverBoxTarget === folder.id) setDragOverBoxTarget(null);
+            }
+          }}
+        >
+          {/* Folder/Box row */}
+          <div
+            draggable={!isRenamingFolder}
+            onDragStart={(e) => handleBoxDragStart(e, folder.id)}
+            onDragEnd={handleDragEnd}
+            style={{
+              ...styles.folderRow,
+              paddingLeft,
+              background: isDragTarget || isBoxDragTarget ? '#E3FCEF' : hoveredFolderId === folder.id ? '#F4F5F7' : 'transparent',
+              outline: isDragTarget || isBoxDragTarget ? '2px dashed #00875A' : 'none',
+              outlineOffset: '-2px',
+              borderRadius: '4px',
+              opacity: draggingBoxId === folder.id ? 0.4 : 1,
+              cursor: isRenamingFolder ? 'default' : 'grab',
+            }}
+            onMouseEnter={() => setHoveredFolderId(folder.id)}
+            onMouseLeave={() => setHoveredFolderId(null)}
+            onClick={() => !isRenamingFolder && toggleFolder(folder.id)}
+          >
+            <span style={styles.folderIcon}>{isCollapsed ? '\u25B8' : '\u25BE'}</span>
+            <span style={{ fontSize: '12px', flexShrink: 0 }}>{boxMeta.icon}</span>
+            {isRenamingFolder ? (
+              <input
+                autoFocus
+                style={{ ...styles.renameInput, flex: 1 }}
+                value={renameFolderValue}
+                onChange={(e) => setRenameFolderValue(e.target.value)}
+                onBlur={() => handleRenameFolder(folder.id)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameFolder(folder.id);
+                  if (e.key === 'Escape') setRenamingFolderId(null);
+                }}
+              />
+            ) : (
+              <span style={styles.folderName}>{folder.name}</span>
+            )}
+            {/* Box type badge */}
+            {boxMeta.label && !isRenamingFolder && (
+              <span style={{
+                fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
+                color: boxMeta.color, background: `${boxMeta.color}18`,
+                borderRadius: '3px', padding: '1px 4px', flexShrink: 0, lineHeight: '14px',
+              }}>
+                {boxMeta.label}
+              </span>
+            )}
+            {hoveredFolderId === folder.id && !isRenamingFolder && (
+              <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
+                <button style={styles.actionBtn} title="Add child box" onClick={() => startCreateChildBox(folder.id)}>+</button>
+                <button style={styles.actionBtn} title="Move box" onClick={() => setMoveMenuBoxId(moveMenuBoxId === folder.id ? null : folder.id)}>{'\u2197'}</button>
+                <button style={styles.actionBtn} title="Rename" onClick={() => { setRenamingFolderId(folder.id); setRenameFolderValue(folder.name); }}>{'\u270F'}</button>
+                <button
+                  style={{ ...styles.actionBtn, color: '#DE350B' }}
+                  title="Delete box"
+                  onClick={() => {
+                    if (window.confirm(`Delete box "${folder.name}"? Views inside will move to root. Child boxes will be un-nested.`)) {
+                      onDeleteFolder(folder.id);
+                    }
+                  }}
+                >{'\uD83D\uDDD1'}</button>
+              </div>
+            )}
+          </div>
+
+          {/* Move menu */}
+          {moveMenuBoxId === folder.id && (
+            <MoveMenu
+              boxId={folder.id}
+              folders={folders}
+              getDescendantIds={getDescendantIds}
+              currentParentId={folder.parentId ?? null}
+              onMove={handleMoveBox}
+              onClose={() => setMoveMenuBoxId(null)}
+              depth={depth}
+            />
+          )}
+
+          {/* Children (child boxes + views) */}
+          {!isCollapsed && (
+            <>
+              {/* Recursively render child boxes */}
+              {renderBoxTree(folder.id, depth + 1, nextVisited)}
+
+              {/* Views inside this folder */}
+              {folderViews.map(v => (
+                <ViewRow
+                  key={v.id}
+                  view={v}
+                  isActive={v.id === activeViewId}
+                  isRenaming={renamingViewId === v.id}
+                  renameValue={renameViewValue}
+                  hovered={hoveredViewId === v.id}
+                  depth={depth + 1}
+                  canDelete={views.length > 1}
+                  isDragging={draggingViewId === v.id}
+                  onHover={setHoveredViewId}
+                  onSwitch={onSwitch}
+                  onStartRename={() => { setRenamingViewId(v.id); setRenameViewValue(v.name); }}
+                  onRenameChange={setRenameViewValue}
+                  onRenameConfirm={() => handleRenameView(v.id)}
+                  onRenameCancel={() => setRenamingViewId(null)}
+                  onDelete={onDelete}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
+                />
+              ))}
+              <button
+                style={{ ...styles.createViewBtn, paddingLeft: `${paddingLeft + 18}px`, fontSize: '11px' }}
+                onClick={() => { setNewViewFolderId(folder.id); setCreatingNew(true); }}
+              >
+                + Add view
+              </button>
+            </>
+          )}
+        </div>
+      );
+    });
   }
 
   const rootViews = views.filter(v => !v.folderId);
@@ -134,119 +374,28 @@ export default function ViewSidebar({
   return (
     <div style={styles.sidebar}>
       <div style={styles.sidebarHeader}>
-        <span>Views</span>
-        <button style={styles.headerBtn} onClick={() => setCreatingFolder(true)} title="New folder">
-          + Folder
+        <span>Boxes</span>
+        <button style={styles.headerBtn} onClick={() => { setNewFolderParentId(null); setCreatingFolder(true); }} title="New box">
+          + Box
         </button>
       </div>
 
-      {/* ── Folders ── */}
-      {folders.map((folder) => {
-        const folderViews = views.filter(v => v.folderId === folder.id);
-        const isCollapsed = collapsedFolders.has(folder.id);
-        const isRenamingFolder = renamingFolderId === folder.id;
-        const isDragTarget = dragOverTarget === folder.id;
+      {/* ── Recursive Box Tree (root-level boxes) ── */}
+      {renderBoxTree(null, 0, new Set())}
 
-        return (
-          <div
-            key={folder.id}
-            onDragOver={(e) => handleDragOverFolder(e, folder.id)}
-            onDrop={(e) => handleDropOnFolder(e, folder.id)}
-            onDragLeave={() => dragOverTarget === folder.id && setDragOverTarget(null)}
-          >
-            {/* Folder row */}
-            <div
-              style={{
-                ...styles.folderRow,
-                background: isDragTarget ? '#E3FCEF' : hoveredFolderId === folder.id ? '#F4F5F7' : 'transparent',
-                outline: isDragTarget ? '2px dashed #00875A' : 'none',
-                outlineOffset: '-2px',
-                borderRadius: '4px',
-              }}
-              onMouseEnter={() => setHoveredFolderId(folder.id)}
-              onMouseLeave={() => setHoveredFolderId(null)}
-              onClick={() => !isRenamingFolder && toggleFolder(folder.id)}
-            >
-              <span style={styles.folderIcon}>{isCollapsed ? '▸' : '▾'}</span>
-              {isRenamingFolder ? (
-                <input
-                  autoFocus
-                  style={{ ...styles.renameInput, flex: 1 }}
-                  value={renameFolderValue}
-                  onChange={(e) => setRenameFolderValue(e.target.value)}
-                  onBlur={() => handleRenameFolder(folder.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleRenameFolder(folder.id);
-                    if (e.key === 'Escape') setRenamingFolderId(null);
-                  }}
-                />
-              ) : (
-                <span style={styles.folderName}>{folder.name}</span>
-              )}
-              {hoveredFolderId === folder.id && !isRenamingFolder && (
-                <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
-                  <button style={styles.actionBtn} title="Rename" onClick={() => { setRenamingFolderId(folder.id); setRenameFolderValue(folder.name); }}>✏</button>
-                  <button
-                    style={{ ...styles.actionBtn, color: '#DE350B' }}
-                    title="Delete folder"
-                    onClick={() => {
-                      if (window.confirm(`Delete folder "${folder.name}"? Views inside will move to root.`)) {
-                        onDeleteFolder(folder.id);
-                      }
-                    }}
-                  >🗑</button>
-                </div>
-              )}
-            </div>
-
-            {/* Views inside folder */}
-            {!isCollapsed && (
-              <>
-                {folderViews.map(v => (
-                  <ViewRow
-                    key={v.id}
-                    view={v}
-                    isActive={v.id === activeViewId}
-                    isRenaming={renamingViewId === v.id}
-                    renameValue={renameViewValue}
-                    hovered={hoveredViewId === v.id}
-                    indented
-                    canDelete={views.length > 1}
-                    isDragging={draggingViewId === v.id}
-                    onHover={setHoveredViewId}
-                    onSwitch={onSwitch}
-                    onStartRename={() => { setRenamingViewId(v.id); setRenameViewValue(v.name); }}
-                    onRenameChange={setRenameViewValue}
-                    onRenameConfirm={() => handleRenameView(v.id)}
-                    onRenameCancel={() => setRenamingViewId(null)}
-                    onDelete={onDelete}
-                    onDragStart={handleDragStart}
-                    onDragEnd={handleDragEnd}
-                  />
-                ))}
-                <button
-                  style={{ ...styles.createViewBtn, paddingLeft: '32px', fontSize: '11px' }}
-                  onClick={() => { setNewViewFolderId(folder.id); setCreatingNew(true); }}
-                >
-                  + Add view
-                </button>
-              </>
-            )}
-          </div>
-        );
-      })}
-
-      {/* ── Root views ── */}
+      {/* ── Root views (not in any folder) ── */}
       <div
         onDragOver={handleDragOverRoot}
         onDrop={handleDropOnRoot}
-        onDragLeave={() => dragOverTarget === 'root' && setDragOverTarget(null)}
+        onDragLeave={() => {
+          if (dragOverTarget === 'root') setDragOverTarget(null);
+          if (dragOverBoxTarget === 'root') setDragOverBoxTarget(null);
+        }}
         style={{
-          outline: dragOverTarget === 'root' ? '2px dashed #0052CC' : 'none',
+          outline: (dragOverTarget === 'root' || dragOverBoxTarget === 'root') ? '2px dashed #0052CC' : 'none',
           outlineOffset: '-2px',
           borderRadius: '4px',
-          minHeight: rootViews.length === 0 && draggingViewId ? '32px' : undefined,
+          minHeight: rootViews.length === 0 && (draggingViewId || draggingBoxId) ? '32px' : undefined,
         }}
       >
         {rootViews.map(v => (
@@ -257,7 +406,7 @@ export default function ViewSidebar({
             isRenaming={renamingViewId === v.id}
             renameValue={renameViewValue}
             hovered={hoveredViewId === v.id}
-            indented={false}
+            depth={0}
             canDelete={views.length > 1}
             folders={folders}
             isDragging={draggingViewId === v.id}
@@ -277,22 +426,58 @@ export default function ViewSidebar({
 
       <div style={styles.divider} />
 
-      {/* ── Create folder ── */}
+      {/* ── Create box form ── */}
       {creatingFolder && (
-        <div style={styles.newViewForm}>
+        <div style={{ ...styles.newViewForm, flexDirection: 'column', gap: '6px', alignItems: 'stretch' }}>
           <input
             autoFocus
             style={styles.newViewInput}
-            placeholder="Folder name…"
+            placeholder="Box name..."
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleCreateFolder();
-              if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
+              if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); setNewFolderBoxType('custom'); setNewFolderParentId(null); }
             }}
           />
-          <button style={styles.createConfirmBtn} onClick={handleCreateFolder}>Create</button>
-          <button style={styles.createCancelBtn} onClick={() => { setCreatingFolder(false); setNewFolderName(''); }}>✕</button>
+          {/* Box type selector */}
+          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+            {BOX_TYPES.map(bt => {
+              const meta = BOX_TYPE_META[bt];
+              const active = newFolderBoxType === bt;
+              return (
+                <button
+                  key={bt}
+                  style={{
+                    flex: 1, border: '1px solid', borderRadius: '3px', padding: '4px 4px',
+                    cursor: 'pointer', fontSize: '10px', fontWeight: 600,
+                    background: active ? meta.color : '#fff',
+                    color: active ? '#fff' : meta.color,
+                    borderColor: active ? meta.color : '#DFE1E6',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px',
+                    minWidth: 0, whiteSpace: 'nowrap',
+                  }}
+                  onClick={() => setNewFolderBoxType(bt)}
+                >
+                  <span style={{ fontSize: '11px' }}>{meta.icon}</span>
+                  {meta.label || 'Custom'}
+                </button>
+              );
+            })}
+          </div>
+          {newFolderParentId && (
+            <div style={{ fontSize: '10px', color: '#6B778C', padding: '0 2px' }}>
+              Parent: {folders.find(f => f.id === newFolderParentId)?.name || 'Unknown'}
+              <button
+                style={{ ...styles.actionBtn, fontSize: '10px', marginLeft: '4px' }}
+                onClick={() => setNewFolderParentId(null)}
+              >x (root)</button>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <button style={styles.createConfirmBtn} onClick={handleCreateFolder}>Create</button>
+            <button style={styles.createCancelBtn} onClick={() => { setCreatingFolder(false); setNewFolderName(''); setNewFolderBoxType('custom'); setNewFolderParentId(null); }}>Cancel</button>
+          </div>
         </div>
       )}
 
@@ -302,7 +487,7 @@ export default function ViewSidebar({
           <input
             autoFocus
             style={styles.newViewInput}
-            placeholder="View name…"
+            placeholder="View name..."
             value={newViewName}
             onChange={(e) => setNewViewName(e.target.value)}
             onKeyDown={(e) => {
@@ -339,8 +524,8 @@ export default function ViewSidebar({
               value={newViewFolderId || ''}
               onChange={(e) => setNewViewFolderId(e.target.value || null)}
             >
-              <option value="">No folder (root)</option>
-              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+              <option value="">No box (root)</option>
+              {folders.map(f => <option key={f.id} value={f.id}>{(BOX_TYPE_META[f.boxType]?.icon || '') + ' ' + f.name}</option>)}
             </select>
           )}
           <div style={{ display: 'flex', gap: '4px' }}>
@@ -357,7 +542,66 @@ export default function ViewSidebar({
   );
 }
 
-function ViewRow({ view, isActive, isRenaming, renameValue, hovered, indented, canDelete, folders, isDragging, onHover, onSwitch, onStartRename, onRenameChange, onRenameConfirm, onRenameCancel, onDelete, onMoveToFolder, onDragStart, onDragEnd }) {
+// ── Move Menu Component ───────────────────────────────────────────────────────
+
+function MoveMenu({ boxId, folders, getDescendantIds, currentParentId, onMove, onClose, depth }) {
+  const descendants = getDescendantIds(boxId);
+  const paddingLeft = 10 + (depth + 1) * 16;
+
+  // Valid targets: root + all folders that are not self, not descendant, not current parent
+  const targets = folders.filter(f =>
+    f.id !== boxId &&
+    !descendants.has(f.id)
+  );
+
+  return (
+    <div style={{
+      margin: '2px 8px 4px',
+      background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '4px',
+      padding: '4px', paddingLeft: `${paddingLeft}px`,
+      maxHeight: '200px', overflowY: 'auto',
+    }}>
+      <div style={{ fontSize: '10px', fontWeight: 600, color: '#6B778C', padding: '2px 6px', textTransform: 'uppercase' }}>
+        Move to...
+      </div>
+      <button
+        style={{
+          ...styles.moveMenuItem,
+          fontWeight: (currentParentId ?? null) === null ? 700 : 400,
+          color: (currentParentId ?? null) === null ? '#6B778C' : '#172B4D',
+        }}
+        onClick={() => onMove(boxId, null)}
+        disabled={(currentParentId ?? null) === null}
+      >
+        {'\u2302'} Root
+      </button>
+      {targets.map(f => {
+        const meta = BOX_TYPE_META[f.boxType] || BOX_TYPE_META.custom;
+        const isCurrent = (currentParentId ?? null) === f.id;
+        return (
+          <button
+            key={f.id}
+            style={{
+              ...styles.moveMenuItem,
+              fontWeight: isCurrent ? 700 : 400,
+              color: isCurrent ? '#6B778C' : '#172B4D',
+            }}
+            onClick={() => onMove(boxId, f.id)}
+            disabled={isCurrent}
+          >
+            {meta.icon} {f.name}
+          </button>
+        );
+      })}
+      <button style={{ ...styles.moveMenuItem, color: '#6B778C', fontSize: '10px' }} onClick={onClose}>Cancel</button>
+    </div>
+  );
+}
+
+// ── ViewRow Component ─────────────────────────────────────────────────────────
+
+function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canDelete, folders, isDragging, onHover, onSwitch, onStartRename, onRenameChange, onRenameConfirm, onRenameCancel, onDelete, onMoveToFolder, onDragStart, onDragEnd }) {
+  const paddingLeft = 10 + (depth || 0) * 16 + (depth > 0 ? 18 : 0);
   return (
     <div
       draggable={!isRenaming}
@@ -365,7 +609,7 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, indented, c
       onDragEnd={onDragEnd}
       style={{
         ...styles.viewItem,
-        paddingLeft: indented ? '28px' : '10px',
+        paddingLeft: `${paddingLeft}px`,
         background: isActive ? '#DEEBFF' : hovered ? '#F4F5F7' : 'transparent',
         color: isActive ? '#0073ea' : '#172B4D',
         opacity: isDragging ? 0.4 : 1,
@@ -416,13 +660,13 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, indented, c
           })()}
           {hovered && !isDragging && (
             <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
-              <button style={styles.actionBtn} title="Rename" onClick={onStartRename}>✏</button>
+              <button style={styles.actionBtn} title="Rename" onClick={onStartRename}>{'\u270F'}</button>
               {canDelete && (
                 <button
                   style={{ ...styles.actionBtn, color: '#DE350B' }}
                   title="Delete"
                   onClick={() => { if (window.confirm(`Delete view "${view.name}"?`)) onDelete(view.id); }}
-                >🗑</button>
+                >{'\uD83D\uDDD1'}</button>
               )}
             </div>
           )}
@@ -434,7 +678,7 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, indented, c
 
 const styles = {
   sidebar: {
-    width: '210px', flexShrink: 0, background: '#fff', borderRight: '1px solid #DFE1E6',
+    width: '230px', flexShrink: 0, background: '#fff', borderRight: '1px solid #DFE1E6',
     display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: '8px', paddingBottom: '8px',
   },
   sidebarHeader: {
@@ -467,4 +711,8 @@ const styles = {
   folderSelect: { border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', width: '100%', color: '#172B4D', background: '#fff' },
   createConfirmBtn: { background: '#0073ea', color: '#fff', border: 'none', borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, flexShrink: 0 },
   createCancelBtn: { background: 'none', border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', cursor: 'pointer', fontSize: '11px', color: '#6B778C', flexShrink: 0 },
+  moveMenuItem: {
+    display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none',
+    padding: '4px 6px', cursor: 'pointer', fontSize: '11px', borderRadius: '3px',
+  },
 };

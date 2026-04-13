@@ -6,7 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 1 (Gantt parity with BigPicture) is complete. Upcoming Phase 2: Boxes (portfolio hierarchy), Scope/WBS tree, Roadmap (quarterly zoom).
+Phase 2 in progress. Upcoming: Scope (WBS tree), Roadmap (quarterly zoom).
+
+## [1.1.0] - 2026-04-13
+
+### Added
+
+- **Boxes (portfolio hierarchy)** — folders are now full-fledged Boxes with a **type** (Portfolio / Program / Project / Custom) and **nesting** (a Box can live inside another Box). Sidebar renders the tree recursively with depth-based indentation. Each Box gets a colored type badge (blue Portfolio, purple Program, green Project; Custom shows no badge for parity with legacy folders). Drag a Box into another Box to re-parent; cycle prevention blocks dragging into self or descendants. Per-Box hover actions: **+** add child Box, **↗** move (target picker excludes invalid targets), **✏** rename, **🗑** delete (children get auto-un-parented, views inside go to root).
+- Backward compat: existing folders backfill to `{ boxType: 'custom', parentId: null }` and continue to work unchanged.
+- Storage: still scoped by `folderId` for events and baselines (no scope-rollup yet — that's a later feature).
 
 ## [1.0.6] - 2026-04-13
 
