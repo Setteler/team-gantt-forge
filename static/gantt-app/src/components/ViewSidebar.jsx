@@ -46,11 +46,32 @@ function RoadmapIcon({ size = 14, color = 'currentColor' }) {
   );
 }
 
+function ProjectIcon({ size = 14, color = 'currentColor' }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
+      {/* Tree hierarchy lines on left */}
+      <rect x="1" y="2" width="4" height="1.5" rx="0.75" fill={color} opacity="0.85"/>
+      <rect x="2.5" y="5.5" width="3.5" height="1.5" rx="0.75" fill={color} opacity="0.65"/>
+      <rect x="2.5" y="9" width="3.5" height="1.5" rx="0.75" fill={color} opacity="0.65"/>
+      <rect x="1" y="12" width="4" height="1.5" rx="0.75" fill={color} opacity="0.85"/>
+      {/* Gantt bars on right */}
+      <rect x="7" y="2" width="5" height="1.5" rx="0.75" fill={color} opacity="0.9"/>
+      <rect x="8" y="5.5" width="5" height="1.5" rx="0.75" fill={color} opacity="0.7"/>
+      <rect x="7.5" y="9" width="4" height="1.5" rx="0.75" fill={color} opacity="0.7"/>
+      <rect x="7" y="12" width="6" height="1.5" rx="0.75" fill={color} opacity="0.9"/>
+      {/* Vertical connector on left side */}
+      <rect x="1.5" y="3.5" width="0.8" height="2" fill={color} opacity="0.4"/>
+      <rect x="1.5" y="7" width="0.8" height="2" fill={color} opacity="0.4"/>
+    </svg>
+  );
+}
+
 const VIEW_TYPE_META = {
   timeline: { label: 'Gantt',    Icon: TimelineIcon, color: '#0073ea' },
   list:     { label: 'List',     Icon: ListIcon,     color: '#00854d' },
   tree:     { label: 'Tree',     Icon: TreeIcon,     color: '#FF8B00' },
   roadmap:  { label: 'Roadmap',  Icon: RoadmapIcon,  color: '#6554C0' },
+  project:  { label: 'Project',  Icon: ProjectIcon,  color: '#00B8D9' },
 };
 
 const BOX_TYPE_META = {
@@ -580,7 +601,7 @@ export default function ViewSidebar({
           />
           {/* View type toggle */}
           <div style={{ display: 'flex', gap: '4px' }}>
-            {['timeline', 'list', 'tree', 'roadmap'].map(vt => {
+            {['timeline', 'list', 'tree', 'roadmap', 'project'].map(vt => {
               const { label, Icon } = VIEW_TYPE_META[vt];
               const active = newViewType === vt;
               return (

@@ -4,6 +4,7 @@ import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
 import TreeView from './components/TreeView';
 import RoadmapView from './components/RoadmapView';
+import ProjectView from './components/ProjectView';
 import ViewSidebar from './components/ViewSidebar';
 import TeamsModule from './components/TeamsModule';
 import RisksModule from './components/RisksModule';
@@ -618,12 +619,12 @@ export default function App() {
           <span style={styles.viewName}>&#128200; Reports</span>
         ) : activeView && (
           <span style={styles.viewName}>
-            {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : '▤ '}{activeView.name}
+            {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : viewType === 'project' ? '▥ ' : '▤ '}{activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
           </span>
         )}
 
-        {viewType === 'timeline' && !activeModuleId && (
+        {(viewType === 'timeline' || viewType === 'project') && !activeModuleId && (
           <div style={styles.navGroup}>
             <button style={styles.navBtn} onClick={() => navigateMonth(-1)}>‹</button>
             <span style={styles.monthLabel}>{monthLabel}</span>
@@ -776,6 +777,17 @@ export default function App() {
               groupByField2Label={groupByField2Label}
               startDateField={startDateField}
               endDateField={endDateField}
+            />
+          ) : viewType === 'project' ? (
+            <ProjectView
+              issues={issues}
+              today={today}
+              startDateField={startDateField}
+              endDateField={endDateField}
+              onUpdateIssue={updateIssueDates}
+              holidays={holidays}
+              scrollToTarget={scrollTarget}
+              onVisibleMonthChange={(y, m) => { setVisYear(y); setVisMonth(m); }}
             />
           ) : (
             <GanttChart

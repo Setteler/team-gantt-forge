@@ -153,6 +153,7 @@ export default function ConfigPanel({
               { value: 'list',     label: '≡ List' },
               { value: 'tree',     label: '⊞ Tree' },
               { value: 'roadmap',  label: '▧ Roadmap' },
+              { value: 'project',  label: '▥ Project' },
             ].map(opt => (
               <button
                 key={opt.value}

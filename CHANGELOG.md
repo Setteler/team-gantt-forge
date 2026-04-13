@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 4 complete. Possible next work: SAFe PI Board, Priorities (RICE/WSJF), Financials, or bringing the Gantt tree-shape (sidebar-indented WBS on the left of the timeline, Microsoft Project style).
+Phase 5 starting. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or polish — drag on the new Project view, dependency arrows on it, critical path on it.
+
+## [1.10.0] - 2026-04-13
+
+### Added
+
+- **Project view (WBS + Gantt hybrid, MS Project style)** — fifth view type: hierarchical issue tree on the left (400px wide, sticky-horizontally), Gantt timeline on the right, identical row heights so each tree node visually aligns with its bar. Single vertical scroll container synchronizes both sides. Three bar styles: **leaf issues** render as solid blue bars, **expanded parents** as thin gray summary brackets (MS Project style, tick marks at each end), **collapsed parents** as dark navy bars at the rolled-up date range. Expand/collapse triangles in the tree. "Expand all" / "Collapse all" buttons. Pick "Project" when creating a view. Teal ▥ icon.
+- Deferred on purpose for MVP: drag-to-move bars, dependency arrows, critical path highlight. These already exist on the standalone Timeline view and can be ported to Project in a follow-up.
 
 ## [1.9.0] - 2026-04-13
 
