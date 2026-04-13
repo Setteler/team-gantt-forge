@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-**All three phases complete.** BigPicture-parity feature surface covered at MVP depth. Future work could extend with Reports, Objectives/OKRs, or SAFe PI board.
+Phase 4 in progress. Upcoming: Objectives/OKRs, Box-scoped JQL.
+
+## [1.7.0] - 2026-04-13
+
+### Added
+
+- **Reports module** — classic PM dashboards, pure SVG (no chart library). **Burndown** compares actual remaining issues (Done issues use their end date as resolution date) against an ideal linear line. **Throughput** bars count issues resolved per week. **Status distribution** donut chart shows count per status with the same status colors used on Gantt bars. 12-week window, ±4-week pagination. 📈 icon in MODULES sidebar.
 
 ## [1.6.0] - 2026-04-13
 
