@@ -7,6 +7,7 @@ import RoadmapView from './components/RoadmapView';
 import ViewSidebar from './components/ViewSidebar';
 import TeamsModule from './components/TeamsModule';
 import RisksModule from './components/RisksModule';
+import ResourcesModule from './components/ResourcesModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import { getFieldValue } from './utils';
@@ -550,6 +551,8 @@ export default function App() {
           <span style={styles.viewName}>&#128101; Teams</span>
         ) : activeModuleId === 'risks' ? (
           <span style={styles.viewName}>&#9888;&#65039; Risks</span>
+        ) : activeModuleId === 'resources' ? (
+          <span style={styles.viewName}>&#128202; Resources</span>
         ) : activeView && (
           <span style={styles.viewName}>
             {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : '▤ '}{activeView.name}
@@ -650,6 +653,8 @@ export default function App() {
             <TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} />
           ) : activeModuleId === 'risks' ? (
             <RisksModule risks={risks} onSaveRisk={saveRisk} onDeleteRisk={deleteRisk} />
+          ) : activeModuleId === 'resources' ? (
+            <ResourcesModule issues={issues} teams={teams} startDateField={startDateField} endDateField={endDateField} />
           ) : (
           <>
           {error && (

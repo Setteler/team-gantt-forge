@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 3 continuing. Upcoming: Resources (capacity heatmap, uses Teams data).
+**All three phases complete.** BigPicture-parity feature surface covered at MVP depth. Future work could extend with Reports, Objectives/OKRs, or SAFe PI board.
+
+## [1.6.0] - 2026-04-13
+
+### Added
+
+- **Resources module** — capacity heatmap showing per-person workload across weeks. Rows = team members (union of all teams + untracked issue assignees). Columns = 12 weeks centered on today, paginate ±4 weeks. Each cell = utilization % based on `overlapping_issues × 8 hrs ÷ weekly_capacity`, color-coded green → yellow → orange → red. Team filter dropdown (All Teams / per-team / No Team / Unassigned). Click a cell to see which issues contribute to that week's load. Pure client-side aggregation over existing `issues` + `teams` state — no new backend resolvers. 📊 icon in MODULES sidebar.
 
 ## [1.5.0] - 2026-04-13
 
