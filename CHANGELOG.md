@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 4 continuing. Upcoming: Box-scoped JQL (Boxes finally matter for data).
+Phase 4 complete. Possible next work: SAFe PI Board, Priorities (RICE/WSJF), Financials, or bringing the Gantt tree-shape (sidebar-indented WBS on the left of the timeline, Microsoft Project style).
+
+## [1.9.0] - 2026-04-13
+
+### Added
+
+- **Box-scoped JQL (Boxes finally matter for data)** — a Box can hold a **default JQL filter** and **description**. Views inside the Box (and inside its descendants) automatically use the Box's filter when they don't have their own. Resolution walks UP the Box chain: `view.folderId → box.parentId → …`, and the first non-empty `defaultJql` wins. Cycle-safe with a visited set. Open the Box config via the new ⚙ action in the Box hover menu. Sidebar shows a ⌘ glyph next to any Box that has a filter set.
+- Boxes finally earn their "portfolio container" name — a Portfolio Box can hold `project = FOO OR project = BAR`, and every view inside just works without per-view setup.
 
 ## [1.8.0] - 2026-04-13
 

@@ -166,6 +166,27 @@ export default function App() {
     eventsOnly     !== (savedView.eventsOnly     || false)
   );
 
+  // ── Resolve Box-scoped JQL ────────────────────────────────────────────────
+  // Walks up the Box (folder) hierarchy starting from the view's folderId.
+  // Returns the first non-empty defaultJql found, or '' if none.
+  // Cycle-safe: keeps a visited set so a malformed parentId chain can't loop.
+  function resolveBoxJql(view, allFolders) {
+    if (!view || !view.folderId) return '';
+    const folderMap = {};
+    for (const f of allFolders) folderMap[f.id] = f;
+
+    let currentId = view.folderId;
+    const visited = new Set();
+    while (currentId && !visited.has(currentId)) {
+      visited.add(currentId);
+      const box = folderMap[currentId];
+      if (!box) break; // orphan reference
+      if (box.defaultJql && box.defaultJql.trim()) return box.defaultJql.trim();
+      currentId = box.parentId || null;
+    }
+    return '';
+  }
+
   // ── Fetch issues ──────────────────────────────────────────────────────────
   const fetchIssues = useCallback(async () => {
     if (eventsOnly) {
@@ -174,7 +195,15 @@ export default function App() {
       return;
     }
     const customJql = jqlFilter.trim();
-    if (!customJql && selectedProjects.length === 0) {
+
+    // Fallback: if view has no JQL and no projects, try inheriting from parent Box chain
+    let effectiveJql = customJql;
+    if (!effectiveJql && selectedProjects.length === 0) {
+      const currentView = views.find(v => v.id === activeViewId);
+      effectiveJql = resolveBoxJql(currentView, folders);
+    }
+
+    if (!effectiveJql && selectedProjects.length === 0) {
       setIssues([]);
       setLoading(false);
       return;
@@ -186,8 +215,9 @@ export default function App() {
     try {
       const orderClause = `ORDER BY ${orderByField || 'duedate'} ${orderByDir || 'ASC'}`;
       let jql;
-      if (customJql) {
-        jql = customJql.includes('ORDER BY') ? customJql : `${customJql} ${orderClause}`;
+      if (effectiveJql) {
+        // effectiveJql is either the view's own jqlFilter or inherited from a parent Box
+        jql = effectiveJql.includes('ORDER BY') ? effectiveJql : `${effectiveJql} ${orderClause}`;
       } else {
         const projectClause = selectedProjects.join(', ');
         const statusClause = statusFilter === 'active' ? 'AND statusCategory != Done' : '';
@@ -223,11 +253,14 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProjects, statusFilter, jqlFilter, groupByField1, groupByField2, startDateField, endDateField, orderByField, orderByDir, eventsOnly]);
+  }, [selectedProjects, statusFilter, jqlFilter, groupByField1, groupByField2, startDateField, endDateField, orderByField, orderByDir, eventsOnly, views, activeViewId, folders]);
 
   useEffect(() => {
     const customJql = jqlFilter.trim();
-    if (selectedProjects.length > 0 || customJql) fetchIssues();
+    // Also trigger fetch if a parent Box provides JQL via inheritance
+    const currentView = views.find(v => v.id === activeViewId);
+    const boxJql = resolveBoxJql(currentView, folders);
+    if (selectedProjects.length > 0 || customJql || boxJql) fetchIssues();
     else setLoading(false);
   }, [fetchIssues]);
 
@@ -352,6 +385,12 @@ export default function App() {
     const updated = { ...folder, parentId: newParentId || null };
     await invoke('saveFolder', { folder: updated });
     setFolders(prev => prev.map(f => f.id === boxId ? updated : f));
+  }
+
+  // ── Save Box configuration (name, description, defaultJql) ────────────────
+  async function handleSaveBox(updatedBox) {
+    const saved = await invoke('saveFolder', { folder: updatedBox });
+    setFolders(prev => prev.map(f => f.id === saved.id ? saved : f));
   }
 
   // ── Custom event CRUD ─────────────────────────────────────────────────────
@@ -667,6 +706,7 @@ export default function App() {
             onRenameFolder={renameFolder}
             onDeleteFolder={deleteFolder}
             onMoveBoxToParent={moveBoxToParent}
+            onSaveBox={handleSaveBox}
             activeModuleId={activeModuleId}
             onSelectModule={handleSelectModule}
           />

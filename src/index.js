@@ -404,7 +404,7 @@ resolver.define('deleteView', async ({ payload }) => {
 
 resolver.define('getFolders', async () => {
   const folders = (await storage.get('gantt_folders')) || [];
-  return folders.map(f => ({ boxType: 'custom', parentId: null, ...f }));
+  return folders.map(f => ({ boxType: 'custom', parentId: null, defaultJql: '', description: '', ...f }));
 });
 
 resolver.define('saveFolder', async ({ payload }) => {

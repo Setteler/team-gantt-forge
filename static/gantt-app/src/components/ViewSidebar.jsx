@@ -74,7 +74,7 @@ export default function ViewSidebar({
   views, folders, activeViewId,
   onSwitch, onCreate, onRename, onDelete,
   onMoveToFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
-  onMoveBoxToParent,
+  onMoveBoxToParent, onSaveBox,
   activeModuleId, onSelectModule,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
@@ -96,6 +96,9 @@ export default function ViewSidebar({
 
   // Move menu state
   const [moveMenuBoxId, setMoveMenuBoxId] = useState(null);
+
+  // Box config modal state
+  const [configBoxId, setConfigBoxId] = useState(null);
 
   // View drag-and-drop state
   const [draggingViewId, setDraggingViewId] = useState(null);
@@ -320,6 +323,10 @@ export default function ViewSidebar({
             ) : (
               <span style={styles.folderName}>{folder.name}</span>
             )}
+            {/* Filter indicator: shows when Box has a defaultJql set */}
+            {!isRenamingFolder && folder.defaultJql && folder.defaultJql.trim() && (
+              <span title="Has default JQL filter" style={{ fontSize: '11px', color: '#0073ea', flexShrink: 0, lineHeight: 1 }}>{'\u2318'}</span>
+            )}
             {/* Box type badge */}
             {boxMeta.label && !isRenamingFolder && (
               <span style={{
@@ -333,6 +340,7 @@ export default function ViewSidebar({
             {hoveredFolderId === folder.id && !isRenamingFolder && (
               <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
                 <button style={styles.actionBtn} title="Add child box" onClick={() => startCreateChildBox(folder.id)}>+</button>
+                <button style={styles.actionBtn} title="Configure box" onClick={() => setConfigBoxId(configBoxId === folder.id ? null : folder.id)}>{'\u2699'}</button>
                 <button style={styles.actionBtn} title="Move box" onClick={() => setMoveMenuBoxId(moveMenuBoxId === folder.id ? null : folder.id)}>{'\u2197'}</button>
                 <button style={styles.actionBtn} title="Rename" onClick={() => { setRenamingFolderId(folder.id); setRenameFolderValue(folder.name); }}>{'\u270F'}</button>
                 <button
@@ -357,6 +365,19 @@ export default function ViewSidebar({
               currentParentId={folder.parentId ?? null}
               onMove={handleMoveBox}
               onClose={() => setMoveMenuBoxId(null)}
+              depth={depth}
+            />
+          )}
+
+          {/* Box config modal */}
+          {configBoxId === folder.id && (
+            <BoxConfigModal
+              folder={folder}
+              onSave={(updated) => {
+                if (onSaveBox) onSaveBox(updated);
+                setConfigBoxId(null);
+              }}
+              onClose={() => setConfigBoxId(null)}
               depth={depth}
             />
           )}
@@ -659,6 +680,115 @@ function MoveMenu({ boxId, folders, getDescendantIds, currentParentId, onMove, o
     </div>
   );
 }
+
+// ── Box Config Modal Component ───────────────────────────────────────────────
+
+function BoxConfigModal({ folder, onSave, onClose, depth }) {
+  const [name, setName] = useState(folder.name || '');
+  const [description, setDescription] = useState(folder.description || '');
+  const [defaultJql, setDefaultJql] = useState(folder.defaultJql || '');
+  const [showHelp, setShowHelp] = useState(false);
+  const paddingLeft = 10 + (depth + 1) * 16;
+
+  function handleSave() {
+    onSave({ ...folder, name: name.trim() || folder.name, description, defaultJql });
+  }
+
+  return (
+    <div style={{
+      margin: '2px 8px 4px',
+      background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '6px',
+      padding: '10px 12px', paddingLeft: `${Math.max(paddingLeft, 12)}px`,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    }}>
+      <div style={{ fontSize: '11px', fontWeight: 700, color: '#42526E', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        {'\u2699'} Box Configuration
+      </div>
+
+      {/* Name */}
+      <label style={boxConfigStyles.label}>Name</label>
+      <input
+        style={boxConfigStyles.input}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onClose(); }}
+      />
+
+      {/* Description */}
+      <label style={boxConfigStyles.label}>Description <span style={{ fontWeight: 400, color: '#97A0AF' }}>(optional)</span></label>
+      <textarea
+        style={boxConfigStyles.textarea}
+        rows={2}
+        placeholder="Brief description of this Box..."
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+
+      {/* Default JQL */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+        <label style={{ ...boxConfigStyles.label, marginTop: 0, marginBottom: 0 }}>Default JQL</label>
+        <button
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px',
+            color: '#6B778C', padding: '0 2px', lineHeight: 1,
+          }}
+          title="Help"
+          onClick={() => setShowHelp(!showHelp)}
+        >?</button>
+      </div>
+      {showHelp && (
+        <div style={{
+          fontSize: '10px', color: '#6B778C', background: '#F4F5F7', borderRadius: '3px',
+          padding: '6px 8px', margin: '4px 0', lineHeight: '1.5',
+        }}>
+          Views in this Box without their own JQL or selected projects will use this filter.
+          Child Boxes inherit from parent Boxes unless they set their own default JQL.
+        </div>
+      )}
+      <textarea
+        style={boxConfigStyles.textarea}
+        rows={3}
+        placeholder='e.g. project = "MY-PROJECT" AND type = Story'
+        value={defaultJql}
+        onChange={(e) => setDefaultJql(e.target.value)}
+      />
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: '6px', marginTop: '8px' }}>
+        <button
+          style={{
+            background: '#0073ea', color: '#fff', border: 'none', borderRadius: '4px',
+            padding: '5px 14px', cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+          }}
+          onClick={handleSave}
+        >Save</button>
+        <button
+          style={{
+            background: 'none', border: '1px solid #DFE1E6', borderRadius: '4px',
+            padding: '5px 10px', cursor: 'pointer', fontSize: '11px', color: '#6B778C',
+          }}
+          onClick={onClose}
+        >Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+const boxConfigStyles = {
+  label: {
+    display: 'block', fontSize: '10px', fontWeight: 600, color: '#6B778C',
+    textTransform: 'uppercase', letterSpacing: '0.3px', marginTop: '6px', marginBottom: '3px',
+  },
+  input: {
+    width: '100%', border: '1px solid #DFE1E6', borderRadius: '4px', padding: '5px 8px',
+    fontSize: '12px', outline: 'none', color: '#172B4D', boxSizing: 'border-box',
+  },
+  textarea: {
+    width: '100%', border: '1px solid #DFE1E6', borderRadius: '4px', padding: '5px 8px',
+    fontSize: '12px', outline: 'none', color: '#172B4D', resize: 'vertical',
+    fontFamily: 'inherit', boxSizing: 'border-box', marginTop: '3px',
+  },
+};
 
 // ── ViewRow Component ─────────────────────────────────────────────────────────
 
