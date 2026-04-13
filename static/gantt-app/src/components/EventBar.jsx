@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 const EVENT_STYLES = {
-  vacation: { bg: '#E3FCEF', border: '#00875A', text: '#006644', label: '🏖️ Vacation' },
-  oncall:   { bg: '#EAE6FF', border: '#5243AA', text: '#403294', label: '🔔 On-Call' },
-  ooo:      { bg: '#FFEBE6', border: '#DE350B', text: '#BF2600', label: 'OOO' },
-  custom:   { bg: '#F4F5F7', border: '#97A0AF', text: '#42526E', label: 'Event' },
+  vacation:  { bg: '#E3FCEF', border: '#00875A', text: '#006644', label: '🏖️ Vacation' },
+  oncall:    { bg: '#EAE6FF', border: '#5243AA', text: '#403294', label: '🔔 On-Call' },
+  ooo:       { bg: '#FFEBE6', border: '#DE350B', text: '#BF2600', label: 'OOO' },
+  custom:    { bg: '#F4F5F7', border: '#97A0AF', text: '#42526E', label: 'Event' },
+  milestone: { bg: '#FFE0F0', border: '#D946A9', text: '#9B1B6E', label: '◆ Milestone' },
 };
 
 function getEventStyle(type, title) {
   const s = EVENT_STYLES[type] || EVENT_STYLES.custom;
-  if (type === 'custom' && title) return { ...s, label: title };
+  if ((type === 'custom' || type === 'milestone') && title) return { ...s, label: title };
   return s;
 }
 
@@ -115,7 +116,8 @@ export default function EventBar({ event, viewStart, dayWidth, rowHeight, barPad
   const overflowRight = endOffset > totalDays;
   const barHeight = rowHeight - barPadding * 2;
   const style = getEventStyle(event.type, event.title);
-  const showHandles = (hovered || active) && !overflowLeft && !overflowRight;
+  const isMilestone = event.type === 'milestone';
+  const showHandles = (hovered || active) && !overflowLeft && !overflowRight && !isMilestone;
 
   // ── Tooltip ──────────────────────────────────────────────────────────────
   function handleBarMouseEnter(e) {
@@ -154,7 +156,12 @@ export default function EventBar({ event, viewStart, dayWidth, rowHeight, barPad
       setDragDelta(0);
       if (moved && delta !== 0 && onUpdate) {
         setHoldMoveDelta(delta); // hold visually until parent confirms
-        onUpdate(event, fmtISODate(addDays(startDate, delta)), fmtISODate(addDays(endDate, delta)));
+        const newDate = fmtISODate(addDays(startDate, delta));
+        if (isMilestone) {
+          onUpdate(event, newDate, newDate);
+        } else {
+          onUpdate(event, newDate, fmtISODate(addDays(endDate, delta)));
+        }
       }
     };
     document.addEventListener('mousemove', onMove);
@@ -221,6 +228,85 @@ export default function EventBar({ event, viewStart, dayWidth, rowHeight, barPad
     document.addEventListener('mouseup', onUp);
   }
 
+  // ── Milestone diamond rendering ───────────────────────────────────────────
+  if (isMilestone) {
+    const diamondSize = barHeight - 4;
+    const diamondLeft = startOffset * dayWidth + (dayWidth - diamondSize) / 2;
+    // If the diamond is entirely outside the visible range, don't render
+    if (diamondLeft + diamondSize < 0 || diamondLeft > totalDays * dayWidth) return null;
+
+    return (
+      <>
+        <div
+          onMouseEnter={handleBarMouseEnter}
+          onMouseLeave={handleBarMouseLeave}
+          onMouseDown={handleDragMouseDown}
+          onClick={() => { if (!didDragRef.current && onEdit) onEdit(event); }}
+          style={{
+            position: 'absolute',
+            left: diamondLeft,
+            top: barPadding + 2,
+            width: diamondSize,
+            height: diamondSize,
+            zIndex: active ? 10 : 3,
+            userSelect: 'none',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            opacity: active ? 0.82 : 1,
+            transition: active ? 'none' : 'box-shadow 0.15s',
+          }}
+        >
+          {/* Diamond shape */}
+          <div style={{
+            width: '100%',
+            height: '100%',
+            transform: 'rotate(45deg)',
+            background: style.bg,
+            border: `2px solid ${style.border}`,
+            boxSizing: 'border-box',
+            boxShadow: hovered || active ? `0 2px 8px ${style.border}44` : 'none',
+          }} />
+        </div>
+        {/* Label to the right of the diamond */}
+        <span style={{
+          position: 'absolute',
+          left: diamondLeft + diamondSize + 4,
+          top: barPadding,
+          height: barHeight,
+          lineHeight: barHeight + 'px',
+          fontSize: '10px',
+          fontWeight: 600,
+          color: style.text,
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          maxWidth: Math.max(0, totalDays * dayWidth - (diamondLeft + diamondSize + 4)),
+          pointerEvents: 'none',
+          userSelect: 'none',
+          zIndex: 2,
+        }}>
+          {style.label}
+        </span>
+
+        {showTooltip && !active && (
+          <EventTooltip
+            event={event}
+            style={style}
+            startDate={startDate}
+            endDate={endDate}
+            x={tooltipPos.x}
+            y={tooltipPos.y}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onClose={() => setShowTooltip(false)}
+            onMouseEnter={() => clearTimeout(hideTimerRef.current)}
+            onMouseLeave={() => setShowTooltip(false)}
+          />
+        )}
+      </>
+    );
+  }
+
+  // ── Regular bar rendering ─────────────────────────────────────────────────
   return (
     <>
       <div
@@ -345,14 +431,23 @@ function EventTooltip({ event, style, startDate, endDate, x, y, onEdit, onDelete
           <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Sub-group</div>
           <div style={{ fontSize: '12px', marginTop: '2px' }}>{g2}</div>
         </div>}
-        <div>
-          <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Start</div>
-          <div style={{ fontSize: '12px', marginTop: '2px' }}>{fmtDate(startDate)}</div>
-        </div>
-        <div>
-          <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>End</div>
-          <div style={{ fontSize: '12px', marginTop: '2px' }}>{fmtDate(endDate)}</div>
-        </div>
+        {event.type === 'milestone' ? (
+          <div>
+            <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Date</div>
+            <div style={{ fontSize: '12px', marginTop: '2px' }}>{fmtDate(startDate)}</div>
+          </div>
+        ) : (
+          <>
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Start</div>
+              <div style={{ fontSize: '12px', marginTop: '2px' }}>{fmtDate(startDate)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: '#97A0AF', textTransform: 'uppercase', letterSpacing: '0.4px' }}>End</div>
+              <div style={{ fontSize: '12px', marginTop: '2px' }}>{fmtDate(endDate)}</div>
+            </div>
+          </>
+        )}
       </div>
 
       {confirming ? (

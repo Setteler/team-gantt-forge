@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-BigPicture-parity work in progress. Upcoming: milestones, critical path, baselines, working calendar, Boxes (portfolio hierarchy).
+BigPicture-parity work in progress. Upcoming: critical path, baselines, working calendar, Boxes (portfolio hierarchy).
+
+## [1.0.3] - 2026-04-13
+
+### Added
+
+- **Milestones** — single-date markers rendered as pink diamonds on the Gantt. Modeled as a new custom-event type (`milestone`) so they share the storage, view scoping, and drag/click behavior of existing events. Resize handles are hidden for milestones; the title appears as a label next to the diamond. Use the **+ Add Event** button and pick **◆ Milestone**, or drag-create on the timeline and switch type in the modal.
 
 ## [1.0.2] - 2026-04-13
 

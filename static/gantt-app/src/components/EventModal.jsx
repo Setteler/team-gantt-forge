@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 
 const EVENT_TYPES = [
-  { value: 'oncall',   label: '🔔 On-Call' },
-  { value: 'vacation', label: '🏖️ Vacation' },
-  { value: 'ooo',      label: 'OOO (Out of Office)' },
-  { value: 'custom',   label: '📌 Custom' },
+  { value: 'oncall',    label: '🔔 On-Call' },
+  { value: 'vacation',  label: '🏖️ Vacation' },
+  { value: 'ooo',       label: 'OOO (Out of Office)' },
+  { value: 'custom',    label: '📌 Custom' },
+  { value: 'milestone', label: '◆ Milestone' },
 ];
 
 export default function EventModal({
@@ -48,9 +49,9 @@ export default function EventModal({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  // Auto-fill title for non-custom types
+  // Auto-fill title for non-custom/non-milestone types
   useEffect(() => {
-    if (type !== 'custom') {
+    if (type !== 'custom' && type !== 'milestone') {
       const typeObj = EVENT_TYPES.find(t => t.value === type);
       if (typeObj) setTitle(typeObj.label.replace(/^[^\s]+\s?/, '').trim());
     }
@@ -58,10 +59,12 @@ export default function EventModal({
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!startDate || !endDate) return;
+    const isMilestone = type === 'milestone';
+    const resolvedEnd = isMilestone ? startDate : endDate;
+    if (!startDate || !resolvedEnd) return;
     setSaving(true);
     try {
-      const resolvedTitle = type === 'custom'
+      const resolvedTitle = (type === 'custom' || type === 'milestone')
         ? title
         : (EVENT_TYPES.find(t => t.value === type)?.label.replace(/^[^\s]+\s?/, '').trim() || type);
 
@@ -75,7 +78,7 @@ export default function EventModal({
           [groupByField2]: group2Val,
         },
         startDate,
-        endDate,
+        endDate: resolvedEnd,
       });
     } finally {
       setSaving(false);
@@ -104,16 +107,16 @@ export default function EventModal({
             </select>
           </label>
 
-          {/* Custom title */}
-          {type === 'custom' && (
+          {/* Custom / Milestone title */}
+          {(type === 'custom' || type === 'milestone') && (
             <label style={fieldLabel}>
-              <span style={labelText}>Title</span>
+              <span style={labelText}>{type === 'milestone' ? 'Milestone name' : 'Title'}</span>
               <input
                 style={input}
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                placeholder="Event title"
+                placeholder={type === 'milestone' ? 'e.g. MVP Launch, Beta Freeze…' : 'Event title'}
                 required
               />
             </label>
@@ -159,16 +162,23 @@ export default function EventModal({
           </div>
 
           {/* Dates */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          {type === 'milestone' ? (
             <label style={fieldLabel}>
-              <span style={labelText}>Start date</span>
+              <span style={labelText}>Date</span>
               <input style={input} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
             </label>
-            <label style={fieldLabel}>
-              <span style={labelText}>End date</span>
-              <input style={input} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required />
-            </label>
-          </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <label style={fieldLabel}>
+                <span style={labelText}>Start date</span>
+                <input style={input} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} required />
+              </label>
+              <label style={fieldLabel}>
+                <span style={labelText}>End date</span>
+                <input style={input} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} required />
+              </label>
+            </div>
+          )}
 
           {/* Actions */}
           <div style={actions}>
