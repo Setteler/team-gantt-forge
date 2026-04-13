@@ -62,11 +62,16 @@ const BOX_TYPE_META = {
 
 const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
 
+const MODULES = [
+  { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65' },
+];
+
 export default function ViewSidebar({
   views, folders, activeViewId,
   onSwitch, onCreate, onRename, onDelete,
   onMoveToFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
   onMoveBoxToParent,
+  activeModuleId, onSelectModule,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newViewName, setNewViewName] = useState('');
@@ -448,6 +453,34 @@ export default function ViewSidebar({
           />
         ))}
       </div>
+
+      <div style={styles.divider} />
+
+      {/* ── Modules section ── */}
+      <div style={styles.sidebarHeader}>
+        <span>Modules</span>
+      </div>
+      {MODULES.map(mod => {
+        const isActive = activeModuleId === mod.id;
+        return (
+          <div
+            key={mod.id}
+            style={{
+              ...styles.viewItem,
+              paddingLeft: '10px',
+              background: isActive ? '#DEEBFF' : 'transparent',
+              color: isActive ? '#0073ea' : '#172B4D',
+              cursor: 'pointer',
+            }}
+            onClick={() => onSelectModule && onSelectModule(mod.id)}
+            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#F4F5F7'; }}
+            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+          >
+            <span style={{ fontSize: '14px', flexShrink: 0 }}>{mod.icon}</span>
+            <span style={{ fontSize: '13px', fontWeight: 500, flex: 1 }}>{mod.label}</span>
+          </div>
+        );
+      })}
 
       <div style={styles.divider} />
 

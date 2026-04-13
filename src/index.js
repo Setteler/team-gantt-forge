@@ -260,6 +260,33 @@ resolver.define('saveHolidays', async ({ payload }) => {
   return sorted;
 });
 
+// ── Teams (global) ───────────────────────────────────────────────────────────
+
+resolver.define('getTeams', async () => {
+  return (await storage.get('gantt_teams')) || [];
+});
+
+resolver.define('saveTeam', async ({ payload }) => {
+  const { team } = payload;
+  const teams = (await storage.get('gantt_teams')) || [];
+  if (team.id) {
+    const idx = teams.findIndex(t => t.id === team.id);
+    if (idx >= 0) teams[idx] = team; else teams.push(team);
+  } else {
+    team.id = `team-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    teams.push(team);
+  }
+  await storage.set('gantt_teams', teams);
+  return team;
+});
+
+resolver.define('deleteTeam', async ({ payload }) => {
+  const { id } = payload;
+  const teams = (await storage.get('gantt_teams')) || [];
+  await storage.set('gantt_teams', teams.filter(t => t.id !== id));
+  return { success: true };
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

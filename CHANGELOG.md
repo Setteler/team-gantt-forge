@@ -6,7 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Phase 2 complete. Phase 3 coming: Teams, Resources (capacity heatmap), Risks (register + 5×5 matrix).
+Phase 3 in progress. Upcoming: Risks (register + 5×5 matrix), Resources (capacity heatmap).
+
+## [1.4.0] - 2026-04-13
+
+### Added
+
+- **Modules concept** — new "MODULES" section in the sidebar beneath BOXES for org-level management pages that aren't issue views. Clicking a module swaps the content area; clicking a view returns. Views and modules are mutually-exclusive selections.
+- **Teams module** — first module. Manage org teams (name, description, members with role + weekly capacity hours). Card grid with per-team member list, total weekly capacity badge, Edit / Delete actions. Modal for create/edit with repeatable member rows. Stored in KVS under `gantt_teams` (global, not view-scoped). Powers the upcoming Resources module.
+- Backend: `getTeams`, `saveTeam`, `deleteTeam` resolvers.
 
 ## [1.3.0] - 2026-04-13
 

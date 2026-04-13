@@ -5,6 +5,7 @@ import ListView from './components/ListView';
 import TreeView from './components/TreeView';
 import RoadmapView from './components/RoadmapView';
 import ViewSidebar from './components/ViewSidebar';
+import TeamsModule from './components/TeamsModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import { getFieldValue } from './utils';
@@ -87,6 +88,10 @@ export default function App() {
   // ── Holidays (global) ─────────────────────────────────────────────────────
   const [holidays, setHolidays] = useState([]);
 
+  // ── Modules ───────────────────────────────────────────────────────────────
+  const [activeModuleId, setActiveModuleId] = useState(null);
+  const [teams, setTeams] = useState([]);
+
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
@@ -95,8 +100,10 @@ export default function App() {
       invoke('getFolders'),
       invoke('getFields'),
       invoke('getHolidays'),
-    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData]) => {
+      invoke('getTeams'),
+    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData]) => {
       setHolidays(holidaysData || []);
+      setTeams(teamsData || []);
       const loadedViews = viewsData || [];
       setViews(loadedViews);
       setFolders(foldersData || []);
@@ -221,6 +228,7 @@ export default function App() {
     }
     const view = views.find(v => v.id === viewId);
     if (!view) return;
+    setActiveModuleId(null);
     applyView(view);
     setShowConfig(false);
     invoke('getCustomEvents', { viewId: view.id, folderId: view.folderId || null })
@@ -240,6 +248,7 @@ export default function App() {
     };
     const saved = await invoke('saveView', { view: newView });
     setViews(prev => [...prev, saved]);
+    setActiveModuleId(null);
     applyView(saved);
     setActiveViewId(saved.id);
     invoke('getCustomEvents', { viewId: saved.id, folderId: saved.folderId || null })
@@ -459,6 +468,29 @@ export default function App() {
     setHolidays(saved || []);
   }
 
+  // ── Team management ────────────────────────────────────────────────────────
+  async function saveTeam(teamData) {
+    const saved = await invoke('saveTeam', { team: teamData });
+    setTeams(prev => {
+      const idx = prev.findIndex(t => t.id === saved.id);
+      if (idx >= 0) return prev.map(t => t.id === saved.id ? saved : t);
+      return [...prev, saved];
+    });
+  }
+
+  async function deleteTeam(id) {
+    await invoke('deleteTeam', { id });
+    setTeams(prev => prev.filter(t => t.id !== id));
+  }
+
+  // ── Module selection ──────────────────────────────────────────────────────
+  function handleSelectModule(moduleId) {
+    setActiveModuleId(moduleId || null);
+    if (moduleId) {
+      setShowConfig(false);
+    }
+  }
+
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
     setVisYear(year);
@@ -495,14 +527,16 @@ export default function App() {
       <div style={styles.toolbar}>
         <button style={styles.sidebarToggle} onClick={() => setShowSidebar(v => !v)} title="Toggle sidebar">☰</button>
         <span style={styles.appTitle}>Team Gantt</span>
-        {activeView && (
+        {activeModuleId === 'teams' ? (
+          <span style={styles.viewName}>&#128101; Teams</span>
+        ) : activeView && (
           <span style={styles.viewName}>
             {viewType === 'tree' ? '⊞ ' : viewType === 'list' ? '≡ ' : viewType === 'roadmap' ? '▧ ' : '▤ '}{activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
           </span>
         )}
 
-        {viewType === 'timeline' && (
+        {viewType === 'timeline' && !activeModuleId && (
           <div style={styles.navGroup}>
             <button style={styles.navBtn} onClick={() => navigateMonth(-1)}>‹</button>
             <span style={styles.monthLabel}>{monthLabel}</span>
@@ -511,6 +545,7 @@ export default function App() {
           </div>
         )}
 
+        {!activeModuleId && (
         <div style={styles.toolbarRight}>
           <button style={styles.addEventBtn} onClick={openCreateEvent}>+ Add Event</button>
           <button
@@ -520,10 +555,11 @@ export default function App() {
           >Configure{isDirty ? ' ·' : ''}</button>
           <button style={styles.refreshBtn} onClick={fetchIssues} title="Refresh">⟳</button>
         </div>
+        )}
       </div>
 
       {/* ── Gantt filter bar ── */}
-      {viewType === 'timeline' && (
+      {viewType === 'timeline' && !activeModuleId && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 16px', background: '#fff', borderBottom: '1px solid #e6e9ef', flexShrink: 0 }}>
           {[
             { f: 'all',    label: `All (${issues.length + customEvents.length})` },
@@ -560,7 +596,7 @@ export default function App() {
       )}
 
       {/* ── Truncation warning ── */}
-      {issuesTruncated && (
+      {issuesTruncated && !activeModuleId && (
         <div style={styles.truncationBanner}>
           ⚠ Showing first 1,000 issues only. Refine your filter to see all results.
           <button style={styles.retryBtn} onClick={() => setIssuesTruncated(false)}>✕</button>
@@ -573,7 +609,7 @@ export default function App() {
           <ViewSidebar
             views={views}
             folders={folders}
-            activeViewId={activeViewId}
+            activeViewId={activeModuleId ? null : activeViewId}
             onSwitch={switchView}
             onCreate={createView}
             onRename={renameView}
@@ -583,10 +619,16 @@ export default function App() {
             onRenameFolder={renameFolder}
             onDeleteFolder={deleteFolder}
             onMoveBoxToParent={moveBoxToParent}
+            activeModuleId={activeModuleId}
+            onSelectModule={handleSelectModule}
           />
         )}
 
         <div style={styles.content}>
+          {activeModuleId === 'teams' ? (
+            <TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} />
+          ) : (
+          <>
           {error && (
             <div style={styles.errorBanner}>
               ⚠️ {error}
@@ -664,6 +706,8 @@ export default function App() {
               activeBaseline={activeBaseline}
               holidays={holidays}
             />
+          )}
+          </>
           )}
         </div>
 
