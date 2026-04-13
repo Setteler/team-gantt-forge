@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-BigPicture-parity work in progress. Upcoming: baselines, working calendar, Boxes (portfolio hierarchy).
+BigPicture-parity work in progress. Upcoming: working calendar, Boxes (portfolio hierarchy).
+
+## [1.0.5] - 2026-04-13
+
+### Added
+
+- **Baselines** — snapshot the current view's issue dates and event dates as a named baseline (e.g., "Sprint 12 start"). Activate any baseline to overlay faded ghost bars at the snapshotted positions, alongside the current bars — instantly see how plans have drifted. Baselines are scoped per view (folder views share, standalone views own theirs) and migrate automatically when a view is moved between folders. Manage from the **Configure** panel.
+- New backend resolvers: `getBaselines`, `saveBaseline`, `deleteBaseline`, `migrateViewBaselines`.
 
 ## [1.0.4] - 2026-04-13
 

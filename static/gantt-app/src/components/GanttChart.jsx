@@ -185,6 +185,7 @@ export default function GanttChart({
   onEditEvent, onDeleteEvent, onUpdateEvent, onUpdateIssue, onCreateEvent,
   onPreviewIssue, previewFields, availableFields,
   showCriticalPath,
+  activeBaseline,
 }) {
   const scrollRef     = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -768,6 +769,87 @@ export default function GanttChart({
                   />
                   {weekendShadingByHeight.item}
                   {todayLineEl}
+                  {/* Ghost baseline bars — rendered before current bars so they sit behind */}
+                  {activeBaseline && row.items.map(item => {
+                    const snap = activeBaseline.snapshot;
+                    if (!snap) return null;
+                    if (item._type === 'custom') {
+                      const blEvt = (snap.events || []).find(e => e.id === item.id);
+                      if (!blEvt) return null;
+                      const bls = parseDate(blEvt.startDate);
+                      const ble = parseDate(blEvt.endDate);
+                      if (!bls && !ble) return null;
+                      const s = bls || ble;
+                      const e = ble || addDays(bls, 1);
+                      const isMilestone = item.type === 'milestone' || (s.getTime() === e.getTime());
+                      const startOff = daysBetween(bufferStart, s);
+                      const endOff = daysBetween(bufferStart, e) + (isMilestone ? 0 : 1);
+                      const clippedStart = Math.max(0, startOff);
+                      const clippedEnd = Math.min(totalDays, endOff);
+                      if (clippedEnd <= clippedStart && !isMilestone) return null;
+                      if (isMilestone) {
+                        const cx = startOff * DAY_WIDTH + DAY_WIDTH / 2;
+                        const sz = ITEM_HEIGHT - BAR_PADDING * 2 - 4;
+                        return (
+                          <div key={`ghost-evt-${item.id}`} style={{
+                            position: 'absolute',
+                            left: cx - sz / 2, top: BAR_PADDING + 2,
+                            width: sz, height: sz,
+                            background: '#97A0AF',
+                            opacity: 0.35,
+                            border: '1.5px dashed #6B778C',
+                            transform: 'rotate(45deg)',
+                            borderRadius: '2px',
+                            pointerEvents: 'none',
+                            zIndex: 1,
+                          }} />
+                        );
+                      }
+                      const gLeft = clippedStart * DAY_WIDTH;
+                      const gWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, DAY_WIDTH * 0.5);
+                      return (
+                        <div key={`ghost-evt-${item.id}`} style={{
+                          position: 'absolute',
+                          left: gLeft, top: BAR_PADDING,
+                          width: gWidth, height: ITEM_HEIGHT - BAR_PADDING * 2,
+                          background: '#97A0AF',
+                          opacity: 0.35,
+                          border: '1.5px dashed #6B778C',
+                          borderRadius: '6px',
+                          pointerEvents: 'none',
+                          zIndex: 1,
+                        }} />
+                      );
+                    }
+                    // Jira issue ghost bar
+                    const blIssue = (snap.issues || {})[item.key];
+                    if (!blIssue) return null;
+                    const bls = parseDate(blIssue.startDate);
+                    const ble = parseDate(blIssue.endDate);
+                    if (!bls && !ble) return null;
+                    const s = bls || addDays(ble, -7);
+                    const e = ble || addDays(bls, 7);
+                    const startOff = daysBetween(bufferStart, s);
+                    const endOff = daysBetween(bufferStart, e) + 1;
+                    const clippedStart = Math.max(0, startOff);
+                    const clippedEnd = Math.min(totalDays, endOff);
+                    if (clippedEnd <= clippedStart) return null;
+                    const gLeft = clippedStart * DAY_WIDTH;
+                    const gWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, DAY_WIDTH * 0.5);
+                    return (
+                      <div key={`ghost-${item.key}`} style={{
+                        position: 'absolute',
+                        left: gLeft, top: BAR_PADDING,
+                        width: gWidth, height: ITEM_HEIGHT - BAR_PADDING * 2,
+                        background: '#97A0AF',
+                        opacity: 0.35,
+                        border: '1.5px dashed #6B778C',
+                        borderRadius: '6px',
+                        pointerEvents: 'none',
+                        zIndex: 1,
+                      }} />
+                    );
+                  })}
                   {row.items.map(item =>
                     item._type === 'custom'
                       ? <EventBar key={item.id} event={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} onEdit={onEditEvent} onDelete={onDeleteEvent} onUpdate={onUpdateEvent} />

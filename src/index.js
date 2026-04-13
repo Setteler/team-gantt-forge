@@ -164,6 +164,77 @@ resolver.define('deleteCustomEvent', async ({ payload }) => {
   return { success: true };
 });
 
+// ── Baselines ────────────────────────────────────────────────────────────────
+// Baselines are scoped the same way as custom events: folder views share
+// 'baselines_folder_<folderId>', standalone views use 'baselines_view_<viewId>'.
+
+function baselinesKey({ viewId, folderId }) {
+  return folderId
+    ? `baselines_folder_${folderId}`
+    : `baselines_view_${viewId}`;
+}
+
+resolver.define('getBaselines', async ({ payload }) => {
+  const { viewId, folderId } = payload || {};
+  const key = baselinesKey({ viewId, folderId });
+  return (await storage.get(key)) || [];
+});
+
+resolver.define('saveBaseline', async ({ payload }) => {
+  const { baseline } = payload;
+  const key = baselinesKey(baseline);
+  const baselines = (await storage.get(key)) || [];
+  if (baseline.id) {
+    const idx = baselines.findIndex(b => b.id === baseline.id);
+    if (idx >= 0) baselines[idx] = baseline; else baselines.push(baseline);
+  } else {
+    baseline.id = `bl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    baselines.push(baseline);
+  }
+  await storage.set(key, baselines);
+  return baseline;
+});
+
+resolver.define('deleteBaseline', async ({ payload }) => {
+  const { id, viewId, folderId } = payload;
+  const key = baselinesKey({ viewId, folderId });
+  const baselines = (await storage.get(key)) || [];
+  await storage.set(key, baselines.filter(b => b.id !== id));
+  return { success: true };
+});
+
+resolver.define('migrateViewBaselines', async ({ payload }) => {
+  const { viewId, fromFolderId, toFolderId } = payload;
+  const fromKey = fromFolderId ? `baselines_folder_${fromFolderId}` : `baselines_view_${viewId}`;
+  const toKey   = toFolderId   ? `baselines_folder_${toFolderId}`   : `baselines_view_${viewId}`;
+  if (fromKey === toKey) return { success: true };
+
+  const fromBaselines = (await storage.get(fromKey)) || [];
+  const viewBaselines = fromFolderId
+    ? fromBaselines.filter(b => b.viewId === viewId)
+    : fromBaselines;
+
+  if (viewBaselines.length === 0) return { success: true };
+
+  // Remove from source (for folder keys, keep other views' baselines)
+  if (fromFolderId) {
+    await storage.set(fromKey, fromBaselines.filter(b => b.viewId !== viewId));
+  } else {
+    await storage.set(fromKey, []);
+  }
+
+  // Update folderId on migrated baselines and merge into destination
+  const updated = viewBaselines.map(b => ({ ...b, folderId: toFolderId || null }));
+  const toBaselines = (await storage.get(toKey)) || [];
+  const merged = [...toBaselines];
+  for (const bl of updated) {
+    const idx = merged.findIndex(b => b.id === bl.id);
+    if (idx >= 0) merged[idx] = bl; else merged.push(bl);
+  }
+  await storage.set(toKey, merged);
+  return { success: true };
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

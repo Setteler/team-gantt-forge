@@ -1,7 +1,7 @@
 {
   "name": "team-gantt-forge",
-  "version": "1.0.4",
-  "description": "Team Gantt — Jira Forge app replacing Airtable Gantt with views, dependency arrows, critical path, milestones, and custom events",
+  "version": "1.0.5",
+  "description": "Team Gantt — Jira Forge app replacing Airtable Gantt with views, dependencies, critical path, milestones, baselines, and custom events",
   "dependencies": {
     "@forge/api": "^3.0.0",
     "@forge/kvs": "^1.6.0",

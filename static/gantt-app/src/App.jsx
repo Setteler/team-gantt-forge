@@ -78,6 +78,10 @@ export default function App() {
   const [ganttFilter, setGanttFilter]       = useState('all');
   const [showCriticalPath, setShowCriticalPath] = useState(true);
 
+  // ── Baselines ──────────────────────────────────────────────────────────────
+  const [baselines, setBaselines]             = useState([]);
+  const [activeBaselineId, setActiveBaselineId] = useState(null);
+
   // ── Load everything on mount ──────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
@@ -99,6 +103,8 @@ export default function App() {
         applyView(active);
         invoke('getCustomEvents', { viewId: active.id, folderId: active.folderId || null })
           .then(eventsData => setCustomEvents(eventsData || []));
+        invoke('getBaselines', { viewId: active.id, folderId: active.folderId || null })
+          .then(data => { setBaselines(data || []); setActiveBaselineId(null); });
       }
     }).catch(() => {});
   }, []);
@@ -212,6 +218,8 @@ export default function App() {
     setShowConfig(false);
     invoke('getCustomEvents', { viewId: view.id, folderId: view.folderId || null })
       .then(eventsData => setCustomEvents(eventsData || []));
+    invoke('getBaselines', { viewId: view.id, folderId: view.folderId || null })
+      .then(data => { setBaselines(data || []); setActiveBaselineId(null); });
   }
 
   async function createView(name, folderId = null, newViewType = 'timeline') {
@@ -229,6 +237,8 @@ export default function App() {
     setActiveViewId(saved.id);
     invoke('getCustomEvents', { viewId: saved.id, folderId: saved.folderId || null })
       .then(eventsData => setCustomEvents(eventsData || []));
+    invoke('getBaselines', { viewId: saved.id, folderId: saved.folderId || null })
+      .then(data => { setBaselines(data || []); setActiveBaselineId(null); });
   }
 
   async function renameView(viewId, newName) {
@@ -253,17 +263,20 @@ export default function App() {
     const oldFolderId = view.folderId || null;
     if (oldFolderId === (folderId || null)) return;
 
-    // Migrate events from old storage key to new storage key
+    // Migrate events and baselines from old storage key to new storage key
     await invoke('migrateViewEvents', { viewId, fromFolderId: oldFolderId, toFolderId: folderId || null });
+    await invoke('migrateViewBaselines', { viewId, fromFolderId: oldFolderId, toFolderId: folderId || null });
 
     const updated = { ...view, folderId: folderId || null };
     await invoke('saveView', { view: updated });
     setViews(prev => prev.map(v => v.id === viewId ? updated : v));
 
-    // Reload events for active view if it's the one being moved
+    // Reload events and baselines for active view if it's the one being moved
     if (viewId === activeViewId) {
       invoke('getCustomEvents', { viewId, folderId: folderId || null })
         .then(eventsData => setCustomEvents(eventsData || []));
+      invoke('getBaselines', { viewId, folderId: folderId || null })
+        .then(data => setBaselines(data || []));
     }
   }
 
@@ -373,6 +386,53 @@ export default function App() {
     });
   }
 
+  // ── Baseline management ───────────────────────────────────────────────────
+  async function createBaseline(name) {
+    const activeView = views.find(v => v.id === activeViewId);
+    const folderId = activeView?.folderId ?? null;
+    const sdf = startDateField || 'customfield_10015';
+    const edf = endDateField || 'duedate';
+
+    // Snapshot current issue dates from UI state
+    const issueSnapshot = {};
+    for (const issue of issues) {
+      const sd = issue.fields[sdf] || null;
+      const ed = issue.fields[edf] || null;
+      if (sd || ed) {
+        issueSnapshot[issue.key] = { startDate: sd, endDate: ed };
+      }
+    }
+
+    // Snapshot current custom event dates from UI state
+    const eventSnapshot = customEvents.map(evt => ({
+      id: evt.id,
+      startDate: evt.startDate || null,
+      endDate: evt.endDate || null,
+    }));
+
+    const baseline = {
+      name,
+      viewId: activeViewId,
+      folderId,
+      createdAt: Date.now(),
+      snapshot: {
+        issues: issueSnapshot,
+        events: eventSnapshot,
+      },
+    };
+
+    const saved = await invoke('saveBaseline', { baseline });
+    setBaselines(prev => [...prev, saved]);
+    setActiveBaselineId(saved.id);
+  }
+
+  async function deleteBaseline(id) {
+    const activeView = views.find(v => v.id === activeViewId);
+    await invoke('deleteBaseline', { id, viewId: activeViewId, folderId: activeView?.folderId || null });
+    setBaselines(prev => prev.filter(b => b.id !== id));
+    if (activeBaselineId === id) setActiveBaselineId(null);
+  }
+
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
     setVisYear(year);
@@ -398,6 +458,8 @@ export default function App() {
 
   const groupOptions1 = extractGroupOptions(issues, groupByField1);
   const groupOptions2 = extractGroupOptions(issues, groupByField2);
+
+  const activeBaseline = activeBaselineId ? baselines.find(b => b.id === activeBaselineId) || null : null;
 
   const monthLabel = `${MONTH_NAMES[visMonth]} ${visYear}`;
 
@@ -549,6 +611,7 @@ export default function App() {
               previewFields={listFields}
               availableFields={availableFields}
               showCriticalPath={showCriticalPath}
+              activeBaseline={activeBaseline}
             />
           )}
         </div>
@@ -583,6 +646,11 @@ export default function App() {
             onEventsOnlyChange={setEventsOnly}
             onSave={saveCurrentView}
             onClose={() => setShowConfig(false)}
+            baselines={baselines}
+            activeBaselineId={activeBaselineId}
+            onCreateBaseline={createBaseline}
+            onDeleteBaseline={deleteBaseline}
+            onSetActiveBaseline={setActiveBaselineId}
           />
         )}
       </div>

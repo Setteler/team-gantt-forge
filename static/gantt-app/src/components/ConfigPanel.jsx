@@ -97,12 +97,18 @@ export default function ConfigPanel({
   onEventsOnlyChange,
   onSave,
   onClose,
+  baselines,
+  activeBaselineId,
+  onCreateBaseline,
+  onDeleteBaseline,
+  onSetActiveBaseline,
 }) {
   const [fieldSearch1, setFieldSearch1]   = useState('');
   const [fieldSearch2, setFieldSearch2]   = useState('');
   const [dateSearch1, setDateSearch1]     = useState('');
   const [dateSearch2, setDateSearch2]     = useState('');
   const [colSearch, setColSearch]         = useState('');
+  const [baselineName, setBaselineName]   = useState('');
 
   const isList = viewType === 'list';
 
@@ -357,6 +363,95 @@ export default function ConfigPanel({
             </div>
           </div>
         )}
+
+        {/* Baselines */}
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>Baselines</div>
+
+          {/* Create baseline */}
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <input
+              style={{ flex: 1, border: '1px solid #DFE1E6', borderRadius: '4px', padding: '6px 8px', fontSize: '12px', color: '#172B4D', outline: 'none', boxSizing: 'border-box' }}
+              placeholder="Baseline name..."
+              value={baselineName}
+              onChange={e => setBaselineName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && baselineName.trim() && onCreateBaseline) {
+                  onCreateBaseline(baselineName.trim());
+                  setBaselineName('');
+                }
+              }}
+            />
+            <button
+              style={{
+                background: '#0052CC', color: '#fff', border: 'none', borderRadius: '4px',
+                padding: '6px 10px', cursor: 'pointer', fontSize: '11px', fontWeight: 600,
+                opacity: baselineName.trim() ? 1 : 0.5,
+                whiteSpace: 'nowrap',
+              }}
+              disabled={!baselineName.trim()}
+              onClick={() => {
+                if (baselineName.trim() && onCreateBaseline) {
+                  onCreateBaseline(baselineName.trim());
+                  setBaselineName('');
+                }
+              }}
+            >+ Snapshot</button>
+          </div>
+
+          {/* Active baseline toggle */}
+          {activeBaselineId && (
+            <button
+              style={{
+                background: 'none', border: '1px solid #DFE1E6', borderRadius: '4px',
+                padding: '4px 10px', cursor: 'pointer', fontSize: '11px', color: '#6B778C',
+                alignSelf: 'flex-start',
+              }}
+              onClick={() => onSetActiveBaseline && onSetActiveBaseline(null)}
+            >Show none</button>
+          )}
+
+          {/* Baseline list */}
+          {(baselines || []).length > 0 && (
+            <div style={{ border: '1px solid #DFE1E6', borderRadius: '4px', maxHeight: '180px', overflowY: 'auto' }}>
+              {[...(baselines || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map(bl => {
+                const isActive = activeBaselineId === bl.id;
+                const dateStr = bl.createdAt ? new Date(bl.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                return (
+                  <div key={bl.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
+                    borderBottom: '1px solid #F4F5F7',
+                    background: isActive ? '#DEEBFF' : 'transparent',
+                  }}>
+                    <div style={{ flex: 1, overflow: 'hidden' }}>
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: '#172B4D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bl.name}</div>
+                      <div style={{ fontSize: '10px', color: '#97A0AF' }}>{dateStr}</div>
+                    </div>
+                    {isActive ? (
+                      <span style={{ fontSize: '10px', fontWeight: 700, color: '#0052CC', background: '#B3D4FF', borderRadius: '3px', padding: '1px 6px', flexShrink: 0 }}>Active</span>
+                    ) : (
+                      <button
+                        style={{ background: 'none', border: '1px solid #DFE1E6', borderRadius: '4px', padding: '2px 8px', cursor: 'pointer', fontSize: '10px', color: '#0052CC', fontWeight: 600, flexShrink: 0 }}
+                        onClick={() => onSetActiveBaseline && onSetActiveBaseline(bl.id)}
+                      >Activate</button>
+                    )}
+                    <button
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#97A0AF', padding: '2px', flexShrink: 0 }}
+                      onClick={() => onDeleteBaseline && onDeleteBaseline(bl.id)}
+                      title="Delete baseline"
+                    >✕</button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {(baselines || []).length === 0 && (
+            <div style={{ fontSize: '11px', color: '#97A0AF', padding: '2px 0' }}>
+              No baselines yet. Create one to snapshot current dates.
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Footer */}
