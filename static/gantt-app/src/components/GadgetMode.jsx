@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { invoke, view as forgeView } from '@forge/bridge';
 import GanttChart from './GanttChart';
 import ListView from './ListView';
@@ -221,8 +221,23 @@ export default function GadgetMode() {
     );
   })();
 
+  // Auto-resize the gadget iframe to fit content
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!rootRef.current) return;
+    const resize = () => {
+      const h = Math.max(400, rootRef.current.scrollHeight || 500);
+      try { forgeView.resize({ height: `${h}px` }); } catch {}
+    };
+    resize();
+    // Re-check after a short delay (content may still be rendering)
+    const t1 = setTimeout(resize, 500);
+    const t2 = setTimeout(resize, 1500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [issues, loading, viewId]);
+
   return (
-    <div style={s.gadgetRoot}>
+    <div ref={rootRef} style={s.gadgetRoot}>
       {viewContent}
     </div>
   );
