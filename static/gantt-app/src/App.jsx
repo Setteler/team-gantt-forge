@@ -585,27 +585,34 @@ export default function App() {
   }
 
   // ── Share dialog ───────────────────────────────────────────────────────────
-  function getShareUrl() {
-    // Construct the clean Jira app URL from the iframe's own path.
-    // Iframe URL: https://<cdn>/<appId>/<installationId>/...
-    // Jira URL:   https://<site>/jira/apps/<appId>/<installationId>
-    try {
-      const parts = window.location.pathname.split('/').filter(Boolean);
-      // parts[0] = appId (UUID), parts[1] = installationId (UUID)
-      if (parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
-        const appId = parts[0];
-        const installId = parts[1];
-        // Get site from referrer or known pattern
-        const site = document.referrer
-          ? new URL(document.referrer).origin
-          : window.location.ancestorOrigins?.[0] || '';
-        if (site) return `${site}/jira/apps/${appId}/${installId}`;
-      }
-    } catch {}
-    // Fallback: try parent (will fail cross-origin but worth attempting)
-    try { return window.parent.location.href.split('#')[0]; } catch {}
-    return window.location.href.split('#')[0];
-  }
+  const [shareUrl, setShareUrl] = useState('');
+
+  useEffect(() => {
+    // Use @forge/bridge to get the site URL from context
+    async function resolveUrl() {
+      try {
+        const { invoke: inv } = await import('@forge/bridge');
+        const ctx = await (await import('@forge/bridge')).view.getContext();
+        const siteUrl = ctx?.siteUrl || '';
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        if (siteUrl && parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
+          setShareUrl(`${siteUrl}/jira/apps/${parts[0]}/${parts[1]}`);
+          return;
+        }
+      } catch {}
+      // Fallback chain
+      try {
+        const parts = window.location.pathname.split('/').filter(Boolean);
+        if (parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
+          const origin = document.referrer ? new URL(document.referrer).origin
+            : window.location.ancestorOrigins?.[0] || '';
+          if (origin) { setShareUrl(`${origin}/jira/apps/${parts[0]}/${parts[1]}`); return; }
+        }
+      } catch {}
+      try { setShareUrl(window.parent.location.href.split('#')[0]); } catch {}
+    }
+    resolveUrl();
+  }, []);
 
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
@@ -910,14 +917,14 @@ export default function App() {
               <div style={shareStyles.urlRow}>
                 <input
                   readOnly
-                  value={getShareUrl()}
+                  value={shareUrl}
                   style={shareStyles.urlInput}
                   onFocus={e => e.target.select()}
                 />
                 <button
                   style={shareStyles.copyBtn}
                   onClick={(e) => {
-                    const url = getShareUrl();
+                    const url = shareUrl;
                     // Forge iframe clipboard fallback: select hidden input + execCommand
                     try { navigator.clipboard.writeText(url); } catch {}
                     const inp = e.currentTarget.previousSibling;
