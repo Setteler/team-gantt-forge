@@ -243,7 +243,7 @@ export default function GadgetMode() {
 }
 
 const s = {
-  gadgetRoot: { display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#323338', background: '#fafbfd' },
+  gadgetRoot: { display: 'flex', flexDirection: 'column', height: '700px', fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif", fontSize: '13px', color: '#323338', background: '#fafbfd' },
   loading: { color: '#6B778C', padding: '40px', textAlign: 'center', fontSize: '13px' },
   empty: { textAlign: 'center', padding: '40px', color: '#42526E' },
 
