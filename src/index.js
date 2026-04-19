@@ -452,25 +452,41 @@ resolver.define('deleteFolder', async ({ payload }) => {
 
 resolver.define('validateJql', async ({ payload }) => {
   const { jql } = payload;
-  if (!jql || !jql.trim()) return { valid: false, count: 0, error: 'Empty JQL' };
+  if (!jql || !jql.trim()) return { valid: false, count: -1, error: 'Empty JQL' };
   try {
-    // Use the classic search endpoint (not /search/jql) because it returns `total`
-    const response = await api.asUser().requestJira(
-      route`/rest/api/3/search?jql=${jql}&fields=summary&maxResults=1`
-    );
-    if (!response.ok) {
-      const text = await response.text();
-      try {
-        const err = JSON.parse(text);
-        return { valid: false, count: 0, error: err.errorMessages?.[0] || err.warningMessages?.[0] || `Error ${response.status}` };
-      } catch {
-        return { valid: false, count: 0, error: `Error ${response.status}` };
+    // Page through with maxResults=100 to get a count.
+    // Cap at 3 pages (300 issues) to keep validation fast.
+    let total = 0;
+    let nextPageToken = undefined;
+    let pages = 0;
+    const MAX_PAGES = 3;
+
+    while (pages < MAX_PAGES) {
+      const url = nextPageToken
+        ? route`/rest/api/3/search/jql?jql=${jql}&fields=summary&maxResults=100&nextPageToken=${nextPageToken}`
+        : route`/rest/api/3/search/jql?jql=${jql}&fields=summary&maxResults=100`;
+
+      const response = await api.asUser().requestJira(url);
+      if (!response.ok) {
+        const text = await response.text();
+        try {
+          const err = JSON.parse(text);
+          return { valid: false, count: -1, error: err.errorMessages?.[0] || err.warningMessages?.[0] || `Error ${response.status}` };
+        } catch {
+          return { valid: false, count: -1, error: `Error ${response.status}` };
+        }
       }
+      const data = await response.json();
+      total += (data.issues || []).length;
+      if (data.isLast || !data.nextPageToken) break;
+      nextPageToken = data.nextPageToken;
+      pages++;
     }
-    const data = await response.json();
-    return { valid: true, count: data.total || 0, error: null };
+    // count = exact if ≤300, otherwise "300+" indicated by hasMore
+    const hasMore = pages >= MAX_PAGES;
+    return { valid: true, count: total, hasMore, error: null };
   } catch (err) {
-    return { valid: false, count: 0, error: err.message || 'Validation failed' };
+    return { valid: false, count: -1, error: err.message || 'Validation failed' };
   }
 });
 

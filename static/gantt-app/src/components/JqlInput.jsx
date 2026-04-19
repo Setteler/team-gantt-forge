@@ -296,7 +296,9 @@ export default function JqlInput({ value, onChange, placeholder, availableFields
     }
     if (validation) {
       if (validation.valid) {
-        return { text: `${validation.count} issue${validation.count !== 1 ? 's' : ''} match`, color: '#00875A' };
+        const c = validation.count;
+        const suffix = validation.hasMore ? '+' : '';
+        return { text: `${c}${suffix} issue${c !== 1 ? 's' : ''} match`, color: '#00875A' };
       }
       return { text: `Invalid: ${validation.error}`, color: '#DE350B' };
     }
