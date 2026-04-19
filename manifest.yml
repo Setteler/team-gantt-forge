@@ -17,6 +17,7 @@ modules:
         function: resolver
       title: Team Gantt Summary
       description: Shows issue status summary, progress, and upcoming due dates from Team Gantt.
+      thumbnail: https://raw.githubusercontent.com/Setteler/team-gantt-forge/main/icon.png
 
   function:
     - key: resolver
