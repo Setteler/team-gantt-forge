@@ -343,6 +343,24 @@ resolver.define('deleteObjective', async ({ payload }) => {
   return { success: true };
 });
 
+// ── Enabled Modules (opt-in module list) ──────────────────────────────────────
+
+const KNOWN_MODULE_IDS = new Set(['teams', 'risks', 'objectives', 'resources', 'reports']);
+
+resolver.define('getEnabledModules', async () => {
+  return (await storage.get('gantt_enabled_modules')) || [];
+});
+
+resolver.define('saveEnabledModules', async ({ payload }) => {
+  const { moduleIds } = payload;
+  if (!Array.isArray(moduleIds)) return [];
+  const validated = moduleIds.filter(id => typeof id === 'string' && KNOWN_MODULE_IDS.has(id));
+  // Dedupe while preserving order
+  const unique = [...new Set(validated)];
+  await storage.set('gantt_enabled_modules', unique);
+  return unique;
+});
+
 // ── Views ─────────────────────────────────────────────────────────────────────
 
 resolver.define('getViews', async () => {

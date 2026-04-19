@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 function TimelineIcon({ size = 14, color = 'currentColor' }) {
   return (
@@ -84,11 +84,11 @@ const BOX_TYPE_META = {
 const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
 
 const MODULES = [
-  { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65' },
-  { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F' },
-  { id: 'objectives', label: 'Objectives', icon: '\uD83C\uDFAF' },
-  { id: 'resources', label: 'Resources', icon: '\uD83D\uDCCA' },
-  { id: 'reports', label: 'Reports', icon: '\uD83D\uDCC8' },
+  { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65', description: 'Manage teams and member capacity' },
+  { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F', description: 'Track risks with probability/impact matrix' },
+  { id: 'objectives', label: 'Objectives', icon: '\uD83C\uDFAF', description: 'OKRs with auto-progress from Jira' },
+  { id: 'resources', label: 'Resources', icon: '\uD83D\uDCCA', description: 'Capacity heatmap across weeks' },
+  { id: 'reports', label: 'Reports', icon: '\uD83D\uDCC8', description: 'Burndown, throughput, status charts' },
 ];
 
 export default function ViewSidebar({
@@ -97,6 +97,7 @@ export default function ViewSidebar({
   onMoveToFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
   onMoveBoxToParent, onSaveBox,
   activeModuleId, onSelectModule,
+  enabledModuleIds = [], onSaveEnabledModules,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newViewName, setNewViewName] = useState('');
@@ -117,6 +118,30 @@ export default function ViewSidebar({
 
   // Move menu state
   const [moveMenuBoxId, setMoveMenuBoxId] = useState(null);
+
+  // Module picker state
+  const [showModulePicker, setShowModulePicker] = useState(false);
+  const [hoveredModuleId, setHoveredModuleId] = useState(null);
+  const modulePickerRef = useRef(null);
+
+  // Close module picker on outside click or Escape
+  useEffect(() => {
+    if (!showModulePicker) return;
+    function handleClick(e) {
+      if (modulePickerRef.current && !modulePickerRef.current.contains(e.target)) {
+        setShowModulePicker(false);
+      }
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') setShowModulePicker(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [showModulePicker]);
 
   // Box config modal state
   const [configBoxId, setConfigBoxId] = useState(null);
@@ -505,9 +530,61 @@ export default function ViewSidebar({
       {/* ── Modules section ── */}
       <div style={styles.sidebarHeader}>
         <span>Modules</span>
+        <button
+          style={styles.headerBtn}
+          onClick={() => setShowModulePicker(prev => !prev)}
+          title="Add or remove modules"
+        >
+          + Add
+        </button>
       </div>
-      {MODULES.map(mod => {
+
+      {/* Module picker (inline dropdown) */}
+      {showModulePicker && (
+        <div ref={modulePickerRef} style={modulePickerStyles.container}>
+          <div style={modulePickerStyles.title}>Available Modules</div>
+          {MODULES.map(mod => {
+            const isEnabled = enabledModuleIds.includes(mod.id);
+            return (
+              <div key={mod.id} style={modulePickerStyles.row}>
+                <span style={{ fontSize: '14px', flexShrink: 0 }}>{mod.icon}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#172B4D' }}>{mod.label}</div>
+                  <div style={{ fontSize: '10px', color: '#6B778C', lineHeight: '1.3' }}>{mod.description}</div>
+                </div>
+                <button
+                  style={{
+                    ...modulePickerStyles.toggleBtn,
+                    background: isEnabled ? '#E3FCEF' : '#fff',
+                    color: isEnabled ? '#00875A' : '#0073ea',
+                    borderColor: isEnabled ? '#ABF5D1' : '#DFE1E6',
+                  }}
+                  onClick={() => {
+                    const next = isEnabled
+                      ? enabledModuleIds.filter(id => id !== mod.id)
+                      : [...enabledModuleIds, mod.id];
+                    if (onSaveEnabledModules) onSaveEnabledModules(next);
+                  }}
+                >
+                  {isEnabled ? 'Enabled \u2713' : 'Enable'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Enabled modules list */}
+      {enabledModuleIds.length === 0 && !showModulePicker && (
+        <div style={{ padding: '8px 12px', fontSize: '11px', color: '#97A0AF', lineHeight: '1.4' }}>
+          Add modules to extend your workspace.
+        </div>
+      )}
+      {enabledModuleIds.map(modId => {
+        const mod = MODULES.find(m => m.id === modId);
+        if (!mod) return null;
         const isActive = activeModuleId === mod.id;
+        const isHovered = hoveredModuleId === mod.id;
         return (
           <div
             key={mod.id}
@@ -519,11 +596,36 @@ export default function ViewSidebar({
               cursor: 'pointer',
             }}
             onClick={() => onSelectModule && onSelectModule(mod.id)}
-            onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#F4F5F7'; }}
-            onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+            onMouseEnter={(e) => {
+              setHoveredModuleId(mod.id);
+              if (!isActive) e.currentTarget.style.background = '#F4F5F7';
+            }}
+            onMouseLeave={(e) => {
+              setHoveredModuleId(null);
+              if (!isActive) e.currentTarget.style.background = 'transparent';
+            }}
           >
             <span style={{ fontSize: '14px', flexShrink: 0 }}>{mod.icon}</span>
             <span style={{ fontSize: '13px', fontWeight: 500, flex: 1 }}>{mod.label}</span>
+            {isHovered && (
+              <button
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: '12px', color: '#6B778C', padding: '2px 4px',
+                  borderRadius: '3px', lineHeight: 1, flexShrink: 0,
+                }}
+                title={`Remove ${mod.label} module`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const next = enabledModuleIds.filter(id => id !== mod.id);
+                  if (onSaveEnabledModules) onSaveEnabledModules(next);
+                  // If removing the active module, clear selection
+                  if (isActive && onSelectModule) onSelectModule(null);
+                }}
+              >
+                {'\u2715'}
+              </button>
+            )}
           </div>
         );
       })}
@@ -808,6 +910,28 @@ const boxConfigStyles = {
     width: '100%', border: '1px solid #DFE1E6', borderRadius: '4px', padding: '5px 8px',
     fontSize: '12px', outline: 'none', color: '#172B4D', resize: 'vertical',
     fontFamily: 'inherit', boxSizing: 'border-box', marginTop: '3px',
+  },
+};
+
+const modulePickerStyles = {
+  container: {
+    margin: '2px 8px 6px',
+    background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '6px',
+    padding: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+  },
+  title: {
+    fontSize: '10px', fontWeight: 700, color: '#6B778C', textTransform: 'uppercase',
+    letterSpacing: '0.3px', padding: '2px 4px 6px', borderBottom: '1px solid #F4F5F7',
+    marginBottom: '4px',
+  },
+  row: {
+    display: 'flex', alignItems: 'center', gap: '8px',
+    padding: '6px 4px', borderRadius: '4px',
+  },
+  toggleBtn: {
+    border: '1px solid', borderRadius: '4px', padding: '3px 8px',
+    cursor: 'pointer', fontSize: '10px', fontWeight: 600,
+    flexShrink: 0, whiteSpace: 'nowrap',
   },
 };
 

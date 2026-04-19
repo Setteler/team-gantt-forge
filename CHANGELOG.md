@@ -6,7 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Polish in progress. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or feature parity on Project view (drag/arrows/critical path).
+Polish continuing. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or feature parity on Project view (drag/arrows/critical path).
+
+## [1.11.0] - 2026-04-13
+
+### Changed
+
+- **Modules are now opt-in.** First-time users see a clean sidebar with just views and Boxes — no modules listed. A new **"+ Add"** button in the MODULES header opens an inline picker showing all 5 available modules (Teams, Risks, Objectives, Resources, Reports) with descriptions and Enable/Disable toggles. Enabled modules appear in the sidebar; disabling a module hides it but does NOT delete its data (re-enabling brings it back). Stored in KVS under `gantt_enabled_modules`.
+- Backend: `getEnabledModules`, `saveEnabledModules` resolvers with validation against known module IDs.
 
 ## [1.10.2] - 2026-04-13
 

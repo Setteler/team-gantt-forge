@@ -95,6 +95,7 @@ export default function App() {
 
   // ── Modules ───────────────────────────────────────────────────────────────
   const [activeModuleId, setActiveModuleId] = useState(null);
+  const [enabledModuleIds, setEnabledModuleIds] = useState([]);
   const [teams, setTeams] = useState([]);
   const [risks, setRisks] = useState([]);
   const [objectives, setObjectives] = useState([]);
@@ -110,11 +111,13 @@ export default function App() {
       invoke('getTeams'),
       invoke('getRisks'),
       invoke('getObjectives'),
-    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData, risksData, objectivesData]) => {
+      invoke('getEnabledModules'),
+    ]).then(([viewsData, projectsData, foldersData, fieldsData, holidaysData, teamsData, risksData, objectivesData, enabledModulesData]) => {
       setHolidays(holidaysData || []);
       setTeams(teamsData || []);
       setRisks(risksData || []);
       setObjectives(objectivesData || []);
+      setEnabledModuleIds(enabledModulesData || []);
       const loadedViews = viewsData || [];
       setViews(loadedViews);
       setFolders(foldersData || []);
@@ -569,10 +572,22 @@ export default function App() {
 
   // ── Module selection ──────────────────────────────────────────────────────
   function handleSelectModule(moduleId) {
+    // Defensive: ignore if module is not enabled
+    if (moduleId && !enabledModuleIds.includes(moduleId)) return;
     setActiveModuleId(moduleId || null);
     if (moduleId) {
       setShowConfig(false);
     }
+  }
+
+  async function handleSaveEnabledModules(ids) {
+    const saved = await invoke('saveEnabledModules', { moduleIds: ids });
+    setEnabledModuleIds(saved || []);
+    // If the currently active module was removed, clear selection
+    if (activeModuleId && !(saved || []).includes(activeModuleId)) {
+      setActiveModuleId(null);
+    }
+    return saved;
   }
 
   // ── Timeline navigation ───────────────────────────────────────────────────
@@ -714,6 +729,8 @@ export default function App() {
             onSaveBox={handleSaveBox}
             activeModuleId={activeModuleId}
             onSelectModule={handleSelectModule}
+            enabledModuleIds={enabledModuleIds}
+            onSaveEnabledModules={handleSaveEnabledModules}
           />
         )}
 
