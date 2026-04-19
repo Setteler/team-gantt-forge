@@ -6,7 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Polish continuing.
+## [2.1.0] - 2026-04-13
+
+### Added
+
+- **JQL autocomplete + live validation.** The JQL input in both the View Configure panel and Folder Settings now has an autocomplete dropdown suggesting field names, operators, project keys, functions (`openSprints()`, `currentUser()`, `now()`, etc.), and keywords (`AND`, `OR`, `ORDER BY`). Suggestions appear after 2+ characters and can be navigated with arrow keys. Below the input, a live validation line shows "X issues match" (green) or the Jira error message (red), debounced 800ms after the user stops typing. Powered by a new `validateJql` backend resolver that sends `maxResults=0` to the Jira search API (fast, returns only the count). New shared `JqlInput` component used in both ConfigPanel and FolderConfigModal.
 
 ## [2.0.0] - 2026-04-13
 

@@ -704,6 +704,8 @@ export default function App() {
             onSelectModule={handleSelectModule}
             enabledModuleIds={enabledModuleIds}
             onSaveEnabledModules={handleSaveEnabledModules}
+            availableFields={availableFields}
+            availableProjects={availableProjects}
           />
         )}
 

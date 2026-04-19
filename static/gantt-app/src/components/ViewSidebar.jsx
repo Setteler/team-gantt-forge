@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import JqlInput from './JqlInput';
 
 function TimelineIcon({ size = 14, color = 'currentColor' }) {
   return (
@@ -89,6 +90,7 @@ export default function ViewSidebar({
   onSaveFolder,
   activeModuleId, onSelectModule,
   enabledModuleIds = [], onSaveEnabledModules,
+  availableFields, availableProjects,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newViewName, setNewViewName] = useState('');
@@ -302,6 +304,8 @@ export default function ViewSidebar({
                 setConfigFolderId(null);
               }}
               onClose={() => setConfigFolderId(null)}
+              availableFields={availableFields}
+              availableProjects={availableProjects}
             />
           )}
 
@@ -588,7 +592,7 @@ export default function ViewSidebar({
 
 // ── Folder Config Modal Component ───────────────────────────────────────────
 
-function FolderConfigModal({ folder, onSave, onClose }) {
+function FolderConfigModal({ folder, onSave, onClose, availableFields, availableProjects }) {
   const [name, setName] = useState(folder.name || '');
   const [description, setDescription] = useState(folder.description || '');
   const [defaultJql, setDefaultJql] = useState(folder.defaultJql || '');
@@ -648,12 +652,12 @@ function FolderConfigModal({ folder, onSave, onClose }) {
           Views in this folder without their own filter will use this JQL.
         </div>
       )}
-      <textarea
-        style={folderConfigStyles.textarea}
-        rows={3}
-        placeholder='e.g. project = "MY-PROJECT" AND type = Story'
+      <JqlInput
         value={defaultJql}
-        onChange={(e) => setDefaultJql(e.target.value)}
+        onChange={setDefaultJql}
+        placeholder='e.g. project = "MY-PROJECT" AND type = Story'
+        availableFields={availableFields}
+        availableProjects={availableProjects}
       />
 
       {/* Actions */}

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import JqlInput from './JqlInput';
 
 function filterFields(list, search) {
   if (!search) return list;
@@ -240,12 +241,12 @@ export default function ConfigPanel({
             JQL Filter
             <span style={styles.sectionNote}> — overrides project/status selectors when set</span>
           </div>
-          <textarea
-            style={styles.jqlTextarea}
-            placeholder={'project = MYPROJECT AND sprint in openSprints()\nLeave empty to use the project/status selectors below.'}
+          <JqlInput
             value={jqlFilter}
-            onChange={e => onJqlFilterChange(e.target.value)}
-            spellCheck={false}
+            onChange={onJqlFilterChange}
+            placeholder={'project = MYPROJECT AND sprint in openSprints()'}
+            availableFields={availableFields}
+            availableProjects={availableProjects}
           />
           {jqlFilter.trim() && (
             <button style={styles.clearJqlBtn} onClick={() => onJqlFilterChange('')}>✕ Clear JQL</button>

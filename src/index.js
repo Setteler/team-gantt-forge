@@ -448,4 +448,29 @@ resolver.define('deleteFolder', async ({ payload }) => {
   return { success: true };
 });
 
+// ── JQL Validation ──────────────────────────────────────────────────────────
+
+resolver.define('validateJql', async ({ payload }) => {
+  const { jql } = payload;
+  if (!jql || !jql.trim()) return { valid: false, count: 0, error: 'Empty JQL' };
+  try {
+    const response = await api.asUser().requestJira(
+      route`/rest/api/3/search/jql?jql=${jql}&maxResults=0`
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      try {
+        const err = JSON.parse(text);
+        return { valid: false, count: 0, error: err.errorMessages?.[0] || err.warningMessages?.[0] || `Error ${response.status}` };
+      } catch {
+        return { valid: false, count: 0, error: `Error ${response.status}` };
+      }
+    }
+    const data = await response.json();
+    return { valid: true, count: data.total || 0, error: null };
+  } catch (err) {
+    return { valid: false, count: 0, error: err.message || 'Validation failed' };
+  }
+});
+
 export const handler = resolver.getDefinitions();
