@@ -586,7 +586,23 @@ export default function App() {
 
   // ── Share dialog ───────────────────────────────────────────────────────────
   function getShareUrl() {
-    // Build the cleanest possible Jira app URL
+    // Construct the clean Jira app URL from the iframe's own path.
+    // Iframe URL: https://<cdn>/<appId>/<installationId>/...
+    // Jira URL:   https://<site>/jira/apps/<appId>/<installationId>
+    try {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      // parts[0] = appId (UUID), parts[1] = installationId (UUID)
+      if (parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
+        const appId = parts[0];
+        const installId = parts[1];
+        // Get site from referrer or known pattern
+        const site = document.referrer
+          ? new URL(document.referrer).origin
+          : window.location.ancestorOrigins?.[0] || '';
+        if (site) return `${site}/jira/apps/${appId}/${installId}`;
+      }
+    } catch {}
+    // Fallback: try parent (will fail cross-origin but worth attempting)
     try { return window.parent.location.href.split('#')[0]; } catch {}
     return window.location.href.split('#')[0];
   }

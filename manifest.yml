@@ -8,6 +8,16 @@ modules:
       layout: basic
       icon: https://raw.githubusercontent.com/Setteler/team-gantt-forge/main/icon.svg
 
+  jira:dashboardGadget:
+    - key: team-gantt-gadget
+      resource: gadget
+      edit:
+        resource: gadget
+      resolver:
+        function: resolver
+      title: Team Gantt Summary
+      description: Shows issue status summary, progress, and upcoming due dates from Team Gantt.
+
   function:
     - key: resolver
       handler: index.handler
@@ -15,6 +25,8 @@ modules:
 resources:
   - key: main
     path: static/gantt-app/build
+  - key: gadget
+    path: static/gadget/build
 
 app:
   runtime:
