@@ -2,8 +2,9 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
-import TreeView from './components/TreeView';
-import RoadmapView from './components/RoadmapView';
+// TreeView and RoadmapView are not imported — those view types have been
+// consolidated into the 3 remaining types (Gantt, List, Project).
+// The component files are kept in the codebase for potential future re-use.
 import ProjectView from './components/ProjectView';
 import ViewSidebar from './components/ViewSidebar';
 import TeamsModule from './components/TeamsModule';
@@ -85,6 +86,7 @@ export default function App() {
   const [showConfig, setShowConfig]         = useState(false);
   const [ganttFilter, setGanttFilter]       = useState('all');
   const [showCriticalPath, setShowCriticalPath] = useState(true);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // ── Baselines ──────────────────────────────────────────────────────────────
   const [baselines, setBaselines]             = useState([]);
@@ -126,9 +128,13 @@ export default function App() {
       const projects = (projectsData.values || []).map(p => ({ key: p.key, name: p.name }));
       setAvailableProjects(projects);
 
-      const active = loadedViews.find(v => v.isDefault) || loadedViews[0];
+      // Check URL hash for a persisted view ID, then fall back to default view
+      const hashViewId = window.location.hash?.slice(1);
+      const hashView = hashViewId ? loadedViews.find(v => v.id === hashViewId) : null;
+      const active = hashView || loadedViews.find(v => v.isDefault) || loadedViews[0];
       if (active) {
         applyView(active);
+        window.location.hash = '#' + active.id;
         invoke('getCustomEvents', { viewId: active.id, folderId: active.folderId || null })
           .then(eventsData => setCustomEvents(eventsData || []));
         invoke('getBaselines', { viewId: active.id, folderId: active.folderId || null })
@@ -269,6 +275,8 @@ export default function App() {
     setActiveModuleId(null);
     applyView(view);
     setShowConfig(false);
+    // Persist active view in URL hash for reload persistence
+    window.location.hash = '#' + viewId;
     invoke('getCustomEvents', { viewId: view.id, folderId: view.folderId || null })
       .then(eventsData => setCustomEvents(eventsData || []));
     invoke('getBaselines', { viewId: view.id, folderId: view.folderId || null })
@@ -346,6 +354,18 @@ export default function App() {
     await invoke('saveView', { view: updated });
     setViews(prev => prev.map(v => v.id === activeViewId ? updated : v));
     setShowConfig(false);
+  }
+
+  // ── Set default view ──────────────────────────────────────────────────────
+  async function setDefaultView(viewId) {
+    const updatedViews = views.map(v => ({ ...v, isDefault: v.id === viewId }));
+    // Save only views whose isDefault actually changed
+    for (const v of updatedViews) {
+      if (v.isDefault !== views.find(old => old.id === v.id)?.isDefault) {
+        await invoke('saveView', { view: v });
+      }
+    }
+    setViews(updatedViews);
   }
 
   // ── Folder management ──────────────────────────────────────────────────────
@@ -564,6 +584,19 @@ export default function App() {
     return saved;
   }
 
+  // ── Copy link to clipboard ────────────────────────────────────────────────
+  function copyAppLink() {
+    try {
+      const url = window.parent.location.href;
+      navigator.clipboard.writeText(url);
+    } catch {
+      // Fallback: if cross-origin blocks parent access, use own location
+      navigator.clipboard.writeText(window.location.href);
+    }
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
     setVisYear(year);
@@ -614,14 +647,15 @@ export default function App() {
           <span style={styles.viewName}>
             <span style={{
               width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-              background: viewType === 'list' ? '#00854d' : viewType === 'tree' ? '#FF8B00' : viewType === 'roadmap' ? '#6554C0' : viewType === 'project' ? '#00B8D9' : '#0073ea',
+              background: viewType === 'list' ? '#00854d' : viewType === 'project' ? '#00B8D9' : '#0073ea',
             }} />
             {activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
           </span>
         )}
 
-        {(viewType === 'timeline' || viewType === 'project') && !activeModuleId && (
+        {/* Show timeline nav for Gantt, Project, and legacy types that fall back to Gantt */}
+        {viewType !== 'list' && !activeModuleId && (
           <div style={styles.navGroup}>
             <button style={styles.navBtn} onClick={() => navigateMonth(-1)}>‹</button>
             <span style={styles.monthLabel}>{monthLabel}</span>
@@ -633,6 +667,16 @@ export default function App() {
         {!activeModuleId && (
         <div style={styles.toolbarRight}>
           <button style={styles.addEventBtn} onClick={openCreateEvent}>+ Add Event</button>
+          <div style={{ position: 'relative', display: 'inline-flex' }}>
+            <button
+              style={styles.shareLinkBtn}
+              onClick={copyAppLink}
+              title="Copy link to this app"
+            >{'\uD83D\uDD17'}</button>
+            {linkCopied && (
+              <span style={styles.linkCopiedTooltip}>Link copied!</span>
+            )}
+          </div>
           <button
             style={{ ...styles.configBtn, background: isDirty ? '#FFFAE6' : '#fff', borderColor: isDirty ? '#FF8B00' : '#DFE1E6' }}
             onClick={() => setShowConfig(v => !v)}
@@ -696,6 +740,7 @@ export default function App() {
             onSaveEnabledModules={handleSaveEnabledModules}
             availableFields={availableFields}
             availableProjects={availableProjects}
+            onSetDefaultView={setDefaultView}
           />
         )}
 
@@ -741,29 +786,6 @@ export default function App() {
               onAddEvent={openCreateEvent}
               onSaveEvent={saveEvent}
             />
-          ) : viewType === 'tree' ? (
-            <TreeView
-              issues={issues}
-              customEvents={customEvents}
-              availableFields={availableFields}
-              startDateField={startDateField}
-              endDateField={endDateField}
-              listFields={listFields}
-              onEditEvent={openEditEvent}
-              onAddEvent={openCreateEvent}
-              onSaveEvent={saveEvent}
-            />
-          ) : viewType === 'roadmap' ? (
-            <RoadmapView
-              issues={issues}
-              today={today}
-              groupByField1={groupByField1}
-              groupByField2={groupByField2}
-              groupByField1Label={groupByField1Label}
-              groupByField2Label={groupByField2Label}
-              startDateField={startDateField}
-              endDateField={endDateField}
-            />
           ) : viewType === 'project' ? (
             <ProjectView
               issues={issues}
@@ -776,6 +798,8 @@ export default function App() {
               onVisibleMonthChange={(y, m) => { setVisYear(y); setVisMonth(m); }}
             />
           ) : (
+            /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'
+               view types — they render as Gantt until the user switches their type. */
             <GanttChart
               issues={ganttFilter === 'events' ? [] : issues}
               customEvents={ganttFilter === 'issues' ? [] : customEvents}
@@ -912,6 +936,17 @@ const styles = {
     border: '1px solid #e6e9ef', borderRadius: '6px', padding: '5px 12px',
     cursor: 'pointer', fontSize: '12px', color: '#323338', fontWeight: 600,
     background: '#fff',
+  },
+  shareLinkBtn: {
+    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
+    width: '30px', height: '30px', cursor: 'pointer', fontSize: '14px', color: '#676879',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  linkCopiedTooltip: {
+    position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+    marginTop: '4px', background: '#172B4D', color: '#fff', fontSize: '11px',
+    fontWeight: 600, padding: '4px 10px', borderRadius: '4px', whiteSpace: 'nowrap',
+    zIndex: 30, pointerEvents: 'none',
   },
   refreshBtn: {
     background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',

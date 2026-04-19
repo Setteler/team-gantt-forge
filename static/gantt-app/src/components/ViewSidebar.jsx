@@ -4,10 +4,11 @@ import JqlInput from './JqlInput';
 const VIEW_TYPE_META = {
   timeline: { label: 'Gantt',   color: '#0073ea', dot: '#0073ea' },
   list:     { label: 'List',    color: '#00854d', dot: '#00854d' },
-  tree:     { label: 'Tree',    color: '#FF8B00', dot: '#FF8B00' },
-  roadmap:  { label: 'Roadmap', color: '#6554C0', dot: '#6554C0' },
   project:  { label: 'Project', color: '#00B8D9', dot: '#00B8D9' },
 };
+
+// Fallback for legacy view types (tree, roadmap) that may exist in saved data
+const DEFAULT_TYPE_META = { label: 'Unknown', color: '#97A0AF', dot: '#97A0AF' };
 
 const MODULES = [
   { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65', description: 'Manage teams and member capacity' },
@@ -25,6 +26,7 @@ export default function ViewSidebar({
   activeModuleId, onSelectModule,
   enabledModuleIds = [], onSaveEnabledModules,
   availableFields, availableProjects,
+  onSetDefaultView,
 }) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newViewName, setNewViewName] = useState('');
@@ -270,6 +272,7 @@ export default function ViewSidebar({
                   onDelete={onDelete}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
+                  onSetDefaultView={onSetDefaultView}
                 />
               ))}
               <button
@@ -335,6 +338,7 @@ export default function ViewSidebar({
             onMoveToFolder={onMoveToFolder}
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
+            onSetDefaultView={onSetDefaultView}
           />
         ))}
       </div>
@@ -483,7 +487,7 @@ export default function ViewSidebar({
           />
           {/* View type toggle */}
           <div style={{ display: 'flex', gap: '4px' }}>
-            {['timeline', 'list', 'tree', 'roadmap', 'project'].map(vt => {
+            {['timeline', 'list', 'project'].map(vt => {
               const { label, color } = VIEW_TYPE_META[vt];
               const active = newViewType === vt;
               return (
@@ -663,8 +667,9 @@ const modulePickerStyles = {
 
 // ── ViewRow Component ─────────────────────────────────────────────────────────
 
-function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canDelete, folders, isDragging, onHover, onSwitch, onStartRename, onRenameChange, onRenameConfirm, onRenameCancel, onDelete, onMoveToFolder, onDragStart, onDragEnd }) {
-  const meta = VIEW_TYPE_META[view.viewType || 'timeline'];
+function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canDelete, folders, isDragging, onHover, onSwitch, onStartRename, onRenameChange, onRenameConfirm, onRenameCancel, onDelete, onMoveToFolder, onDragStart, onDragEnd, onSetDefaultView }) {
+  // Backward compat: fall back to gray badge for legacy types (tree, roadmap)
+  const meta = VIEW_TYPE_META[view.viewType || 'timeline'] || { ...DEFAULT_TYPE_META, label: view.viewType || 'unknown' };
   const paddingLeft = 10 + (depth || 0) * 16 + (depth > 0 ? 18 : 0);
   return (
     <div
@@ -711,8 +716,15 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
           }}>
             {meta.label}
           </span>
+          {/* Default view star indicator (always visible when default) */}
+          {view.isDefault && (
+            <span style={{ fontSize: '12px', color: '#FF8B00', flexShrink: 0, lineHeight: 1 }} title="Default view">{'\u2605'}</span>
+          )}
           {hovered && !isDragging && (
             <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
+              {!view.isDefault && onSetDefaultView && (
+                <button style={{ ...styles.actionBtn, color: '#FF8B00' }} title="Set as default view" onClick={() => onSetDefaultView(view.id)}>{'\u2606'}</button>
+              )}
               <button style={styles.actionBtn} title="Rename" onClick={onStartRename}>{'\u270F'}</button>
               {canDelete && (
                 <button

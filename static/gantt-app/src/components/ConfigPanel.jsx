@@ -116,9 +116,9 @@ export default function ConfigPanel({
   const [newHolidayName, setNewHolidayName] = useState('');
 
   const isList = viewType === 'list';
-  // Tree and Project views organize issues by the Jira `parent` field
+  // Project views (and legacy tree views) organize issues by the Jira `parent` field
   // (or Epic Link as fallback) — not by a configurable group-by field.
-  const isHierarchical = viewType === 'tree' || viewType === 'project';
+  const isHierarchical = viewType === 'project' || viewType === 'tree';
 
   function toggleProject(key) {
     if (selectedProjects.includes(key)) {
@@ -153,10 +153,8 @@ export default function ConfigPanel({
           <div style={styles.sectionTitle}>View type</div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {[
-              { value: 'timeline', label: '▤ Timeline' },
+              { value: 'timeline', label: '▤ Gantt' },
               { value: 'list',     label: '≡ List' },
-              { value: 'tree',     label: '⊞ Tree' },
-              { value: 'roadmap',  label: '▧ Roadmap' },
               { value: 'project',  label: '▥ Project' },
             ].map(opt => (
               <button
