@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { invoke, view as forgeView } from '@forge/bridge';
 import GanttChart from './GanttChart';
 import ListView from './ListView';
@@ -45,6 +45,20 @@ export default function GadgetMode() {
   const [availableFields, setAvailableFields] = useState([]);
   const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
+  const rootRef = useRef(null);
+
+  // Auto-resize the gadget iframe to fit content (must be before any returns)
+  useEffect(() => {
+    if (!rootRef.current) return;
+    const resize = () => {
+      const h = Math.max(400, rootRef.current.scrollHeight || 500);
+      try { forgeView.resize({ height: `${h}px` }); } catch {}
+    };
+    resize();
+    const t1 = setTimeout(resize, 500);
+    const t2 = setTimeout(resize, 1500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [issues, loading, viewId]);
 
   // Load context + data
   useEffect(() => {
@@ -122,7 +136,7 @@ export default function GadgetMode() {
   // ── Edit mode: view picker ───────────────────────────────────────────────
   if (isEdit) {
     return (
-      <div style={s.editRoot}>
+      <div ref={rootRef} style={s.editRoot}>
         <div style={s.editTitle}>Choose a view to display</div>
         {views.length === 0 ? (
           <div style={s.loading}>Loading views...</div>
@@ -159,7 +173,7 @@ export default function GadgetMode() {
   // ── Render mode: show the actual view ────────────────────────────────────
   if (!selectedView) {
     return (
-      <div style={s.empty}>
+      <div ref={rootRef} style={s.empty}>
         <p style={{ fontWeight: 600, fontSize: '14px' }}>No view selected</p>
         <p style={{ color: '#6B778C', fontSize: '12px', marginTop: '4px' }}>Edit this gadget to choose a Team Gantt view.</p>
       </div>
@@ -167,7 +181,7 @@ export default function GadgetMode() {
   }
 
   if (loading) {
-    return <div style={s.loading}>Loading...</div>;
+    return <div ref={rootRef} style={s.loading}>Loading...</div>;
   }
 
   const today = new Date();
@@ -220,21 +234,6 @@ export default function GadgetMode() {
       />
     );
   })();
-
-  // Auto-resize the gadget iframe to fit content
-  const rootRef = useRef(null);
-  useEffect(() => {
-    if (!rootRef.current) return;
-    const resize = () => {
-      const h = Math.max(400, rootRef.current.scrollHeight || 500);
-      try { forgeView.resize({ height: `${h}px` }); } catch {}
-    };
-    resize();
-    // Re-check after a short delay (content may still be rendering)
-    const t1 = setTimeout(resize, 500);
-    const t2 = setTimeout(resize, 1500);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
-  }, [issues, loading, viewId]);
 
   return (
     <div ref={rootRef} style={s.gadgetRoot}>
