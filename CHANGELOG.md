@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-Polish continuing. Possible next: SAFe PI Board, Priorities (RICE/WSJF), Financials, or feature parity on Project view (drag/arrows/critical path).
+Polish continuing.
+
+## [2.0.0] - 2026-04-13
+
+### Changed
+
+- **"Boxes" replaced with plain Folders.** The Portfolio / Program / Project / Custom type system, multi-level nesting, move menu, box-to-box drag, and cycle-prevention BFS are all gone. Folders are now flat, typeless containers with just a name, optional description, and optional default JQL filter. Sidebar header renamed "Boxes" → "Views", button renamed "+ Box" → "+ Folder". Hover actions reduced from 5 to 3 (Settings, Rename, Delete). Create-folder form is now just a name field. ~260 lines removed from ViewSidebar.jsx. No data migration — old `boxType`/`parentId` fields sit harmlessly in KVS. JQL inheritance from folder → child views is preserved (direct lookup, no chain walk).
 
 ## [1.11.0] - 2026-04-13
 

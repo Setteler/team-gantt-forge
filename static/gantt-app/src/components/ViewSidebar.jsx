@@ -74,15 +74,6 @@ const VIEW_TYPE_META = {
   project:  { label: 'Project',  Icon: ProjectIcon,  color: '#00B8D9' },
 };
 
-const BOX_TYPE_META = {
-  portfolio: { icon: '\uD83D\uDCCA', label: 'Portfolio', color: '#0073ea' },
-  program:   { icon: '\uD83D\uDCC1', label: 'Program',   color: '#6554C0' },
-  project:   { icon: '\uD83D\uDCC2', label: 'Project',   color: '#00875A' },
-  custom:    { icon: '\uD83D\uDDC2', label: '',           color: '#6B778C' },
-};
-
-const BOX_TYPES = ['portfolio', 'program', 'project', 'custom'];
-
 const MODULES = [
   { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65', description: 'Manage teams and member capacity' },
   { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F', description: 'Track risks with probability/impact matrix' },
@@ -95,7 +86,7 @@ export default function ViewSidebar({
   views, folders, activeViewId,
   onSwitch, onCreate, onRename, onDelete,
   onMoveToFolder, onCreateFolder, onRenameFolder, onDeleteFolder,
-  onMoveBoxToParent, onSaveBox,
+  onSaveFolder,
   activeModuleId, onSelectModule,
   enabledModuleIds = [], onSaveEnabledModules,
 }) {
@@ -109,15 +100,10 @@ export default function ViewSidebar({
 
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderBoxType, setNewFolderBoxType] = useState('custom');
-  const [newFolderParentId, setNewFolderParentId] = useState(null);
   const [renamingFolderId, setRenamingFolderId] = useState(null);
   const [renameFolderValue, setRenameFolderValue] = useState('');
   const [hoveredFolderId, setHoveredFolderId] = useState(null);
   const [collapsedFolders, setCollapsedFolders] = useState(new Set());
-
-  // Move menu state
-  const [moveMenuBoxId, setMoveMenuBoxId] = useState(null);
 
   // Module picker state
   const [showModulePicker, setShowModulePicker] = useState(false);
@@ -143,32 +129,12 @@ export default function ViewSidebar({
     };
   }, [showModulePicker]);
 
-  // Box config modal state
-  const [configBoxId, setConfigBoxId] = useState(null);
+  // Folder config modal state
+  const [configFolderId, setConfigFolderId] = useState(null);
 
   // View drag-and-drop state
   const [draggingViewId, setDraggingViewId] = useState(null);
   const [dragOverTarget, setDragOverTarget] = useState(null); // folderId or 'root'
-
-  // Box drag-and-drop state
-  const [draggingBoxId, setDraggingBoxId] = useState(null);
-  const [dragOverBoxTarget, setDragOverBoxTarget] = useState(null);
-
-  // ── Helpers: descendants for cycle prevention ─────────────────────────────
-  const getDescendantIds = useCallback((boxId) => {
-    const descendants = new Set();
-    const queue = [boxId];
-    while (queue.length > 0) {
-      const current = queue.shift();
-      for (const f of folders) {
-        if ((f.parentId ?? null) === current && !descendants.has(f.id)) {
-          descendants.add(f.id);
-          queue.push(f.id);
-        }
-      }
-    }
-    return descendants;
-  }, [folders]);
 
   async function handleCreateView() {
     const name = newViewName.trim();
@@ -197,18 +163,9 @@ export default function ViewSidebar({
   async function handleCreateFolder() {
     const name = newFolderName.trim();
     if (!name) return;
-    await onCreateFolder(name, newFolderBoxType, newFolderParentId);
+    await onCreateFolder(name);
     setCreatingFolder(false);
     setNewFolderName('');
-    setNewFolderBoxType('custom');
-    setNewFolderParentId(null);
-  }
-
-  function startCreateChildBox(parentId) {
-    setNewFolderParentId(parentId);
-    setNewFolderBoxType('custom');
-    setNewFolderName('');
-    setCreatingFolder(true);
   }
 
   function toggleFolder(folderId) {
@@ -219,16 +176,9 @@ export default function ViewSidebar({
     });
   }
 
-  // ── Move Box handler ──────────────────────────────────────────────────────
-  function handleMoveBox(boxId, newParentId) {
-    if (onMoveBoxToParent) onMoveBoxToParent(boxId, newParentId);
-    setMoveMenuBoxId(null);
-  }
-
   // ── View Drag handlers ────────────────────────────────────────────────────
   function handleDragStart(e, viewId) {
     setDraggingViewId(viewId);
-    setDraggingBoxId(null);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', `view:${viewId}`);
   }
@@ -236,8 +186,6 @@ export default function ViewSidebar({
   function handleDragEnd() {
     setDraggingViewId(null);
     setDragOverTarget(null);
-    setDraggingBoxId(null);
-    setDragOverBoxTarget(null);
   }
 
   function handleDragOverFolder(e, folderId) {
@@ -245,12 +193,6 @@ export default function ViewSidebar({
     e.dataTransfer.dropEffect = 'move';
     if (draggingViewId) {
       setDragOverTarget(folderId);
-    } else if (draggingBoxId) {
-      // Don't allow drop on self or descendant
-      const descendants = getDescendantIds(draggingBoxId);
-      if (folderId !== draggingBoxId && !descendants.has(folderId)) {
-        setDragOverBoxTarget(folderId);
-      }
     }
   }
 
@@ -259,8 +201,6 @@ export default function ViewSidebar({
     e.dataTransfer.dropEffect = 'move';
     if (draggingViewId) {
       setDragOverTarget('root');
-    } else if (draggingBoxId) {
-      setDragOverBoxTarget('root');
     }
   }
 
@@ -269,55 +209,26 @@ export default function ViewSidebar({
     e.stopPropagation();
     if (draggingViewId) {
       onMoveToFolder(draggingViewId, folderId);
-    } else if (draggingBoxId) {
-      const descendants = getDescendantIds(draggingBoxId);
-      if (folderId !== draggingBoxId && !descendants.has(folderId)) {
-        handleMoveBox(draggingBoxId, folderId);
-      }
     }
     setDraggingViewId(null);
     setDragOverTarget(null);
-    setDraggingBoxId(null);
-    setDragOverBoxTarget(null);
   }
 
   function handleDropOnRoot(e) {
     e.preventDefault();
     if (draggingViewId) onMoveToFolder(draggingViewId, null);
-    else if (draggingBoxId) handleMoveBox(draggingBoxId, null);
     setDraggingViewId(null);
     setDragOverTarget(null);
-    setDraggingBoxId(null);
-    setDragOverBoxTarget(null);
   }
 
-  // ── Box Drag handlers ─────────────────────────────────────────────────────
-  function handleBoxDragStart(e, boxId) {
-    e.stopPropagation();
-    setDraggingBoxId(boxId);
-    setDraggingViewId(null);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', `box:${boxId}`);
-  }
-
-  // ── Recursive Box Tree Renderer ───────────────────────────────────────────
-  function renderBoxTree(parentId, depth, visited) {
-    const childFolders = folders.filter(f => (f.parentId ?? null) === parentId);
-    if (childFolders.length === 0 && parentId !== null) return null;
-
-    return childFolders.map(folder => {
-      // Cycle protection
-      if (visited.has(folder.id)) return null;
-      const nextVisited = new Set(visited);
-      nextVisited.add(folder.id);
-
+  // ── Flat Folder Renderer ──────────────────────────────────────────────────
+  function renderFolders() {
+    return folders.map(folder => {
       const folderViews = views.filter(v => v.folderId === folder.id);
       const isCollapsed = collapsedFolders.has(folder.id);
       const isRenamingFolder = renamingFolderId === folder.id;
       const isDragTarget = dragOverTarget === folder.id;
-      const isBoxDragTarget = dragOverBoxTarget === folder.id;
-      const boxMeta = BOX_TYPE_META[folder.boxType] || BOX_TYPE_META.custom;
-      const paddingLeft = 10 + depth * 16;
+      const isConfigOpen = configFolderId === folder.id;
 
       return (
         <div
@@ -325,34 +236,26 @@ export default function ViewSidebar({
           onDragOver={(e) => handleDragOverFolder(e, folder.id)}
           onDrop={(e) => handleDropOnFolder(e, folder.id)}
           onDragLeave={(e) => {
-            // Only clear if leaving this element (not entering a child)
             if (!e.currentTarget.contains(e.relatedTarget)) {
               if (dragOverTarget === folder.id) setDragOverTarget(null);
-              if (dragOverBoxTarget === folder.id) setDragOverBoxTarget(null);
             }
           }}
         >
-          {/* Folder/Box row */}
+          {/* Folder row */}
           <div
-            draggable={!isRenamingFolder}
-            onDragStart={(e) => handleBoxDragStart(e, folder.id)}
-            onDragEnd={handleDragEnd}
             style={{
               ...styles.folderRow,
-              paddingLeft,
-              background: isDragTarget || isBoxDragTarget ? '#E3FCEF' : hoveredFolderId === folder.id ? '#F4F5F7' : 'transparent',
-              outline: isDragTarget || isBoxDragTarget ? '2px dashed #00875A' : 'none',
+              background: isDragTarget ? '#E3FCEF' : hoveredFolderId === folder.id ? '#F4F5F7' : 'transparent',
+              outline: isDragTarget ? '2px dashed #00875A' : 'none',
               outlineOffset: '-2px',
               borderRadius: '4px',
-              opacity: draggingBoxId === folder.id ? 0.4 : 1,
-              cursor: isRenamingFolder ? 'default' : 'grab',
             }}
             onMouseEnter={() => setHoveredFolderId(folder.id)}
             onMouseLeave={() => setHoveredFolderId(null)}
             onClick={() => !isRenamingFolder && toggleFolder(folder.id)}
           >
             <span style={styles.folderIcon}>{isCollapsed ? '\u25B8' : '\u25BE'}</span>
-            <span style={{ fontSize: '12px', flexShrink: 0 }}>{boxMeta.icon}</span>
+            <span style={{ fontSize: '12px', flexShrink: 0 }}>{'\uD83D\uDCC1'}</span>
             {isRenamingFolder ? (
               <input
                 autoFocus
@@ -369,31 +272,19 @@ export default function ViewSidebar({
             ) : (
               <span style={styles.folderName}>{folder.name}</span>
             )}
-            {/* Filter indicator: shows when Box has a defaultJql set */}
-            {!isRenamingFolder && folder.defaultJql && folder.defaultJql.trim() && (
-              <span title="Has default JQL filter" style={{ fontSize: '11px', color: '#0073ea', flexShrink: 0, lineHeight: 1 }}>{'\u2318'}</span>
-            )}
-            {/* Box type badge */}
-            {boxMeta.label && !isRenamingFolder && (
-              <span style={{
-                fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
-                color: boxMeta.color, background: `${boxMeta.color}18`,
-                borderRadius: '3px', padding: '1px 4px', flexShrink: 0, lineHeight: '14px',
-              }}>
-                {boxMeta.label}
-              </span>
+            {/* Filter indicator */}
+            {folder.defaultJql && folder.defaultJql.trim() && !isRenamingFolder && (
+              <span style={{ fontSize: '10px', color: '#6B778C', opacity: 0.7 }} title="Has default filter">{'\uD83D\uDD0D'}</span>
             )}
             {hoveredFolderId === folder.id && !isRenamingFolder && (
               <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
-                <button style={styles.actionBtn} title="Add child box" onClick={() => startCreateChildBox(folder.id)}>+</button>
-                <button style={styles.actionBtn} title="Configure box" onClick={() => setConfigBoxId(configBoxId === folder.id ? null : folder.id)}>{'\u2699'}</button>
-                <button style={styles.actionBtn} title="Move box" onClick={() => setMoveMenuBoxId(moveMenuBoxId === folder.id ? null : folder.id)}>{'\u2197'}</button>
+                <button style={styles.actionBtn} title="Settings" onClick={() => setConfigFolderId(configFolderId === folder.id ? null : folder.id)}>{'\u2699'}</button>
                 <button style={styles.actionBtn} title="Rename" onClick={() => { setRenamingFolderId(folder.id); setRenameFolderValue(folder.name); }}>{'\u270F'}</button>
                 <button
                   style={{ ...styles.actionBtn, color: '#DE350B' }}
-                  title="Delete box"
+                  title="Delete"
                   onClick={() => {
-                    if (window.confirm(`Delete box "${folder.name}"? Views inside will move to root. Child boxes will be un-nested.`)) {
+                    if (window.confirm(`Delete folder "${folder.name}"? Views inside will move to root.`)) {
                       onDeleteFolder(folder.id);
                     }
                   }}
@@ -402,39 +293,21 @@ export default function ViewSidebar({
             )}
           </div>
 
-          {/* Move menu */}
-          {moveMenuBoxId === folder.id && (
-            <MoveMenu
-              boxId={folder.id}
-              folders={folders}
-              getDescendantIds={getDescendantIds}
-              currentParentId={folder.parentId ?? null}
-              onMove={handleMoveBox}
-              onClose={() => setMoveMenuBoxId(null)}
-              depth={depth}
-            />
-          )}
-
-          {/* Box config modal */}
-          {configBoxId === folder.id && (
-            <BoxConfigModal
+          {/* Folder config modal (inline) */}
+          {isConfigOpen && (
+            <FolderConfigModal
               folder={folder}
               onSave={(updated) => {
-                if (onSaveBox) onSaveBox(updated);
-                setConfigBoxId(null);
+                if (onSaveFolder) onSaveFolder(updated);
+                setConfigFolderId(null);
               }}
-              onClose={() => setConfigBoxId(null)}
-              depth={depth}
+              onClose={() => setConfigFolderId(null)}
             />
           )}
 
-          {/* Children (child boxes + views) */}
+          {/* Views inside folder */}
           {!isCollapsed && (
             <>
-              {/* Recursively render child boxes */}
-              {renderBoxTree(folder.id, depth + 1, nextVisited)}
-
-              {/* Views inside this folder */}
               {folderViews.map(v => (
                 <ViewRow
                   key={v.id}
@@ -443,7 +316,7 @@ export default function ViewSidebar({
                   isRenaming={renamingViewId === v.id}
                   renameValue={renameViewValue}
                   hovered={hoveredViewId === v.id}
-                  depth={depth + 1}
+                  depth={1}
                   canDelete={views.length > 1}
                   isDragging={draggingViewId === v.id}
                   onHover={setHoveredViewId}
@@ -458,7 +331,7 @@ export default function ViewSidebar({
                 />
               ))}
               <button
-                style={{ ...styles.createViewBtn, paddingLeft: `${paddingLeft + 18}px`, fontSize: '11px' }}
+                style={{ ...styles.createViewBtn, paddingLeft: '28px', fontSize: '11px' }}
                 onClick={() => { setNewViewFolderId(folder.id); setCreatingNew(true); }}
               >
                 + Add view
@@ -475,14 +348,14 @@ export default function ViewSidebar({
   return (
     <div style={styles.sidebar}>
       <div style={styles.sidebarHeader}>
-        <span>Boxes</span>
-        <button style={styles.headerBtn} onClick={() => { setNewFolderParentId(null); setCreatingFolder(true); }} title="New box">
-          + Box
+        <span>Views</span>
+        <button style={styles.headerBtn} onClick={() => setCreatingFolder(true)} title="New folder">
+          + Folder
         </button>
       </div>
 
-      {/* ── Recursive Box Tree (root-level boxes) ── */}
-      {renderBoxTree(null, 0, new Set())}
+      {/* ── Flat Folders ── */}
+      {renderFolders()}
 
       {/* ── Root views (not in any folder) ── */}
       <div
@@ -490,13 +363,12 @@ export default function ViewSidebar({
         onDrop={handleDropOnRoot}
         onDragLeave={() => {
           if (dragOverTarget === 'root') setDragOverTarget(null);
-          if (dragOverBoxTarget === 'root') setDragOverBoxTarget(null);
         }}
         style={{
-          outline: (dragOverTarget === 'root' || dragOverBoxTarget === 'root') ? '2px dashed #0052CC' : 'none',
+          outline: dragOverTarget === 'root' ? '2px dashed #0052CC' : 'none',
           outlineOffset: '-2px',
           borderRadius: '4px',
-          minHeight: rootViews.length === 0 && (draggingViewId || draggingBoxId) ? '32px' : undefined,
+          minHeight: rootViews.length === 0 && draggingViewId ? '32px' : undefined,
         }}
       >
         {rootViews.map(v => (
@@ -632,57 +504,23 @@ export default function ViewSidebar({
 
       <div style={styles.divider} />
 
-      {/* ── Create box form ── */}
+      {/* ── Create folder form ── */}
       {creatingFolder && (
         <div style={{ ...styles.newViewForm, flexDirection: 'column', gap: '6px', alignItems: 'stretch' }}>
           <input
             autoFocus
             style={styles.newViewInput}
-            placeholder="Box name..."
+            placeholder="Folder name..."
             value={newFolderName}
             onChange={(e) => setNewFolderName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleCreateFolder();
-              if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); setNewFolderBoxType('custom'); setNewFolderParentId(null); }
+              if (e.key === 'Escape') { setCreatingFolder(false); setNewFolderName(''); }
             }}
           />
-          {/* Box type selector */}
-          <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-            {BOX_TYPES.map(bt => {
-              const meta = BOX_TYPE_META[bt];
-              const active = newFolderBoxType === bt;
-              return (
-                <button
-                  key={bt}
-                  style={{
-                    flex: 1, border: '1px solid', borderRadius: '3px', padding: '4px 4px',
-                    cursor: 'pointer', fontSize: '10px', fontWeight: 600,
-                    background: active ? meta.color : '#fff',
-                    color: active ? '#fff' : meta.color,
-                    borderColor: active ? meta.color : '#DFE1E6',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '3px',
-                    minWidth: 0, whiteSpace: 'nowrap',
-                  }}
-                  onClick={() => setNewFolderBoxType(bt)}
-                >
-                  <span style={{ fontSize: '11px' }}>{meta.icon}</span>
-                  {meta.label || 'Custom'}
-                </button>
-              );
-            })}
-          </div>
-          {newFolderParentId && (
-            <div style={{ fontSize: '10px', color: '#6B778C', padding: '0 2px' }}>
-              Parent: {folders.find(f => f.id === newFolderParentId)?.name || 'Unknown'}
-              <button
-                style={{ ...styles.actionBtn, fontSize: '10px', marginLeft: '4px' }}
-                onClick={() => setNewFolderParentId(null)}
-              >x (root)</button>
-            </div>
-          )}
           <div style={{ display: 'flex', gap: '4px' }}>
             <button style={styles.createConfirmBtn} onClick={handleCreateFolder}>Create</button>
-            <button style={styles.createCancelBtn} onClick={() => { setCreatingFolder(false); setNewFolderName(''); setNewFolderBoxType('custom'); setNewFolderParentId(null); }}>Cancel</button>
+            <button style={styles.createCancelBtn} onClick={() => { setCreatingFolder(false); setNewFolderName(''); }}>Cancel</button>
           </div>
         </div>
       )}
@@ -730,8 +568,8 @@ export default function ViewSidebar({
               value={newViewFolderId || ''}
               onChange={(e) => setNewViewFolderId(e.target.value || null)}
             >
-              <option value="">No box (root)</option>
-              {folders.map(f => <option key={f.id} value={f.id}>{(BOX_TYPE_META[f.boxType]?.icon || '') + ' ' + f.name}</option>)}
+              <option value="">No folder</option>
+              {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
             </select>
           )}
           <div style={{ display: 'flex', gap: '4px' }}>
@@ -748,70 +586,13 @@ export default function ViewSidebar({
   );
 }
 
-// ── Move Menu Component ───────────────────────────────────────────────────────
+// ── Folder Config Modal Component ───────────────────────────────────────────
 
-function MoveMenu({ boxId, folders, getDescendantIds, currentParentId, onMove, onClose, depth }) {
-  const descendants = getDescendantIds(boxId);
-  const paddingLeft = 10 + (depth + 1) * 16;
-
-  // Valid targets: root + all folders that are not self, not descendant, not current parent
-  const targets = folders.filter(f =>
-    f.id !== boxId &&
-    !descendants.has(f.id)
-  );
-
-  return (
-    <div style={{
-      margin: '2px 8px 4px',
-      background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '4px',
-      padding: '4px', paddingLeft: `${paddingLeft}px`,
-      maxHeight: '200px', overflowY: 'auto',
-    }}>
-      <div style={{ fontSize: '10px', fontWeight: 600, color: '#6B778C', padding: '2px 6px', textTransform: 'uppercase' }}>
-        Move to...
-      </div>
-      <button
-        style={{
-          ...styles.moveMenuItem,
-          fontWeight: (currentParentId ?? null) === null ? 700 : 400,
-          color: (currentParentId ?? null) === null ? '#6B778C' : '#172B4D',
-        }}
-        onClick={() => onMove(boxId, null)}
-        disabled={(currentParentId ?? null) === null}
-      >
-        {'\u2302'} Root
-      </button>
-      {targets.map(f => {
-        const meta = BOX_TYPE_META[f.boxType] || BOX_TYPE_META.custom;
-        const isCurrent = (currentParentId ?? null) === f.id;
-        return (
-          <button
-            key={f.id}
-            style={{
-              ...styles.moveMenuItem,
-              fontWeight: isCurrent ? 700 : 400,
-              color: isCurrent ? '#6B778C' : '#172B4D',
-            }}
-            onClick={() => onMove(boxId, f.id)}
-            disabled={isCurrent}
-          >
-            {meta.icon} {f.name}
-          </button>
-        );
-      })}
-      <button style={{ ...styles.moveMenuItem, color: '#6B778C', fontSize: '10px' }} onClick={onClose}>Cancel</button>
-    </div>
-  );
-}
-
-// ── Box Config Modal Component ───────────────────────────────────────────────
-
-function BoxConfigModal({ folder, onSave, onClose, depth }) {
+function FolderConfigModal({ folder, onSave, onClose }) {
   const [name, setName] = useState(folder.name || '');
   const [description, setDescription] = useState(folder.description || '');
   const [defaultJql, setDefaultJql] = useState(folder.defaultJql || '');
   const [showHelp, setShowHelp] = useState(false);
-  const paddingLeft = 10 + (depth + 1) * 16;
 
   function handleSave() {
     onSave({ ...folder, name: name.trim() || folder.name, description, defaultJql });
@@ -821,35 +602,35 @@ function BoxConfigModal({ folder, onSave, onClose, depth }) {
     <div style={{
       margin: '2px 8px 4px',
       background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '6px',
-      padding: '10px 12px', paddingLeft: `${Math.max(paddingLeft, 12)}px`,
+      padding: '10px 12px',
       boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
     }}>
       <div style={{ fontSize: '11px', fontWeight: 700, color: '#42526E', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-        {'\u2699'} Box Configuration
+        {'\u2699'} Folder Settings
       </div>
 
       {/* Name */}
-      <label style={boxConfigStyles.label}>Name</label>
+      <label style={folderConfigStyles.label}>Name</label>
       <input
-        style={boxConfigStyles.input}
+        style={folderConfigStyles.input}
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onClose(); }}
       />
 
       {/* Description */}
-      <label style={boxConfigStyles.label}>Description <span style={{ fontWeight: 400, color: '#97A0AF' }}>(optional)</span></label>
+      <label style={folderConfigStyles.label}>Description <span style={{ fontWeight: 400, color: '#97A0AF' }}>(optional)</span></label>
       <textarea
-        style={boxConfigStyles.textarea}
+        style={folderConfigStyles.textarea}
         rows={2}
-        placeholder="Brief description of this Box..."
+        placeholder="Brief description of this folder..."
         value={description}
         onChange={(e) => setDescription(e.target.value)}
       />
 
       {/* Default JQL */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-        <label style={{ ...boxConfigStyles.label, marginTop: 0, marginBottom: 0 }}>Default JQL</label>
+        <label style={{ ...folderConfigStyles.label, marginTop: 0, marginBottom: 0 }}>Default JQL</label>
         <button
           style={{
             background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px',
@@ -864,12 +645,11 @@ function BoxConfigModal({ folder, onSave, onClose, depth }) {
           fontSize: '10px', color: '#6B778C', background: '#F4F5F7', borderRadius: '3px',
           padding: '6px 8px', margin: '4px 0', lineHeight: '1.5',
         }}>
-          Views in this Box without their own JQL or selected projects will use this filter.
-          Child Boxes inherit from parent Boxes unless they set their own default JQL.
+          Views in this folder without their own filter will use this JQL.
         </div>
       )}
       <textarea
-        style={boxConfigStyles.textarea}
+        style={folderConfigStyles.textarea}
         rows={3}
         placeholder='e.g. project = "MY-PROJECT" AND type = Story'
         value={defaultJql}
@@ -897,7 +677,7 @@ function BoxConfigModal({ folder, onSave, onClose, depth }) {
   );
 }
 
-const boxConfigStyles = {
+const folderConfigStyles = {
   label: {
     display: 'block', fontSize: '10px', fontWeight: 600, color: '#6B778C',
     textTransform: 'uppercase', letterSpacing: '0.3px', marginTop: '6px', marginBottom: '3px',
@@ -1048,8 +828,4 @@ const styles = {
   folderSelect: { border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', width: '100%', color: '#172B4D', background: '#fff' },
   createConfirmBtn: { background: '#0073ea', color: '#fff', border: 'none', borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, flexShrink: 0 },
   createCancelBtn: { background: 'none', border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', cursor: 'pointer', fontSize: '11px', color: '#6B778C', flexShrink: 0 },
-  moveMenuItem: {
-    display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'none',
-    padding: '4px 6px', cursor: 'pointer', fontSize: '11px', borderRadius: '3px',
-  },
 };

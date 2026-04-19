@@ -170,25 +170,12 @@ export default function App() {
     eventsOnly     !== (savedView.eventsOnly     || false)
   );
 
-  // ── Resolve Box-scoped JQL ────────────────────────────────────────────────
-  // Walks up the Box (folder) hierarchy starting from the view's folderId.
-  // Returns the first non-empty defaultJql found, or '' if none.
-  // Cycle-safe: keeps a visited set so a malformed parentId chain can't loop.
-  function resolveBoxJql(view, allFolders) {
-    if (!view || !view.folderId) return '';
-    const folderMap = {};
-    for (const f of allFolders) folderMap[f.id] = f;
-
-    let currentId = view.folderId;
-    const visited = new Set();
-    while (currentId && !visited.has(currentId)) {
-      visited.add(currentId);
-      const box = folderMap[currentId];
-      if (!box) break; // orphan reference
-      if (box.defaultJql && box.defaultJql.trim()) return box.defaultJql.trim();
-      currentId = box.parentId || null;
-    }
-    return '';
+  // ── Resolve folder-scoped JQL ──────────────────────────────────────────────
+  // Direct lookup: if the view belongs to a folder, return that folder's defaultJql.
+  function resolveFolderJql(view, allFolders) {
+    if (!view?.folderId) return '';
+    const folder = allFolders.find(f => f.id === view.folderId);
+    return folder?.defaultJql?.trim() || '';
   }
 
   // ── Fetch issues ──────────────────────────────────────────────────────────
@@ -200,11 +187,11 @@ export default function App() {
     }
     const customJql = jqlFilter.trim();
 
-    // Fallback: if view has no JQL and no projects, try inheriting from parent Box chain
+    // Fallback: if view has no JQL and no projects, try inheriting from folder
     let effectiveJql = customJql;
     if (!effectiveJql && selectedProjects.length === 0) {
       const currentView = views.find(v => v.id === activeViewId);
-      effectiveJql = resolveBoxJql(currentView, folders);
+      effectiveJql = resolveFolderJql(currentView, folders);
     }
 
     if (!effectiveJql && selectedProjects.length === 0) {
@@ -220,7 +207,7 @@ export default function App() {
       const orderClause = `ORDER BY ${orderByField || 'duedate'} ${orderByDir || 'ASC'}`;
       let jql;
       if (effectiveJql) {
-        // effectiveJql is either the view's own jqlFilter or inherited from a parent Box
+        // effectiveJql is either the view's own jqlFilter or inherited from its folder
         jql = effectiveJql.includes('ORDER BY') ? effectiveJql : `${effectiveJql} ${orderClause}`;
       } else {
         const projectClause = selectedProjects.join(', ');
@@ -261,10 +248,10 @@ export default function App() {
 
   useEffect(() => {
     const customJql = jqlFilter.trim();
-    // Also trigger fetch if a parent Box provides JQL via inheritance
+    // Also trigger fetch if a folder provides JQL
     const currentView = views.find(v => v.id === activeViewId);
-    const boxJql = resolveBoxJql(currentView, folders);
-    if (selectedProjects.length > 0 || customJql || boxJql) fetchIssues();
+    const folderJql = resolveFolderJql(currentView, folders);
+    if (selectedProjects.length > 0 || customJql || folderJql) fetchIssues();
     else {
       // No data source → clear stale issues from the previous view
       setIssues([]);
@@ -361,9 +348,9 @@ export default function App() {
     setShowConfig(false);
   }
 
-  // ── Folder / Box management ────────────────────────────────────────────────
-  async function createFolder(name, boxType = 'custom', parentId = null) {
-    const saved = await invoke('saveFolder', { folder: { name, boxType, parentId } });
+  // ── Folder management ──────────────────────────────────────────────────────
+  async function createFolder(name) {
+    const saved = await invoke('saveFolder', { folder: { name } });
     setFolders(prev => [...prev, saved]);
     return saved;
   }
@@ -378,26 +365,13 @@ export default function App() {
 
   async function deleteFolder(folderId) {
     await invoke('deleteFolder', { id: folderId });
-    setFolders(prev => {
-      // Remove the folder, un-parent its children
-      return prev
-        .filter(f => f.id !== folderId)
-        .map(f => f.parentId === folderId ? { ...f, parentId: null } : f);
-    });
+    setFolders(prev => prev.filter(f => f.id !== folderId));
     setViews(prev => prev.map(v => v.folderId === folderId ? { ...v, folderId: null } : v));
   }
 
-  async function moveBoxToParent(boxId, newParentId) {
-    const folder = folders.find(f => f.id === boxId);
-    if (!folder) return;
-    const updated = { ...folder, parentId: newParentId || null };
-    await invoke('saveFolder', { folder: updated });
-    setFolders(prev => prev.map(f => f.id === boxId ? updated : f));
-  }
-
-  // ── Save Box configuration (name, description, defaultJql) ────────────────
-  async function handleSaveBox(updatedBox) {
-    const saved = await invoke('saveFolder', { folder: updatedBox });
+  // ── Save folder configuration (name, description, defaultJql) ──────────────
+  async function handleSaveFolder(updatedFolder) {
+    const saved = await invoke('saveFolder', { folder: updatedFolder });
     setFolders(prev => prev.map(f => f.id === saved.id ? saved : f));
   }
 
@@ -725,8 +699,7 @@ export default function App() {
             onCreateFolder={createFolder}
             onRenameFolder={renameFolder}
             onDeleteFolder={deleteFolder}
-            onMoveBoxToParent={moveBoxToParent}
-            onSaveBox={handleSaveBox}
+            onSaveFolder={handleSaveFolder}
             activeModuleId={activeModuleId}
             onSelectModule={handleSelectModule}
             enabledModuleIds={enabledModuleIds}
