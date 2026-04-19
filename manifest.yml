@@ -10,13 +10,13 @@ modules:
 
   jira:dashboardGadget:
     - key: team-gantt-gadget
-      resource: gadget
+      resource: main
       edit:
         resource: gadget
       resolver:
         function: resolver
-      title: Team Gantt Summary
-      description: Shows issue status summary, progress, and upcoming due dates from Team Gantt.
+      title: Team Gantt
+      description: Embed a Team Gantt view (Gantt chart, List, or Project) directly on your dashboard.
       thumbnail: https://raw.githubusercontent.com/Setteler/team-gantt-forge/main/icon.png
 
   function:

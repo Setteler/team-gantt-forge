@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@forge/bridge';
+import { invoke, view as forgeView } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
 // TreeView and RoadmapView are not imported — those view types have been
@@ -15,6 +15,7 @@ import ReportsModule from './components/ReportsModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import { getFieldValue } from './utils';
+import GadgetMode from './components/GadgetMode';
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -46,6 +47,19 @@ const DEFAULT_CONFIG = {
 };
 
 export default function App() {
+  // Detect if we're running as a dashboard gadget
+  const [isGadget, setIsGadget] = useState(null); // null = checking, true/false = resolved
+  useEffect(() => {
+    forgeView.getContext().then(ctx => {
+      const type = ctx?.extension?.type;
+      setIsGadget(type === 'jira:dashboardGadget');
+    }).catch(() => setIsGadget(false));
+  }, []);
+
+  // If gadget mode, delegate to GadgetMode component entirely
+  if (isGadget === null) return null; // still checking context
+  if (isGadget) return <GadgetMode />;
+
   const today = new Date();
 
   const [issues, setIssues]                     = useState([]);
@@ -585,34 +599,34 @@ export default function App() {
   }
 
   // ── Share dialog ───────────────────────────────────────────────────────────
-  const [shareUrl, setShareUrl] = useState('');
+  const [shareBaseUrl, setShareBaseUrl] = useState('');
 
   useEffect(() => {
-    // Use @forge/bridge to get the site URL from context
     async function resolveUrl() {
       try {
-        const { invoke: inv } = await import('@forge/bridge');
-        const ctx = await (await import('@forge/bridge')).view.getContext();
+        const ctx = await forgeView.getContext();
         const siteUrl = ctx?.siteUrl || '';
         const parts = window.location.pathname.split('/').filter(Boolean);
         if (siteUrl && parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
-          setShareUrl(`${siteUrl}/jira/apps/${parts[0]}/${parts[1]}`);
+          setShareBaseUrl(`${siteUrl}/jira/apps/${parts[0]}/${parts[1]}`);
           return;
         }
       } catch {}
-      // Fallback chain
       try {
         const parts = window.location.pathname.split('/').filter(Boolean);
         if (parts.length >= 2 && parts[0].includes('-') && parts[1].includes('-')) {
           const origin = document.referrer ? new URL(document.referrer).origin
             : window.location.ancestorOrigins?.[0] || '';
-          if (origin) { setShareUrl(`${origin}/jira/apps/${parts[0]}/${parts[1]}`); return; }
+          if (origin) { setShareBaseUrl(`${origin}/jira/apps/${parts[0]}/${parts[1]}`); return; }
         }
       } catch {}
-      try { setShareUrl(window.parent.location.href.split('#')[0]); } catch {}
+      try { setShareBaseUrl(window.parent.location.href.split('#')[0]); } catch {}
     }
     resolveUrl();
   }, []);
+
+  // Include the current view ID in the share URL so it deep-links
+  const shareUrl = shareBaseUrl ? `${shareBaseUrl}#${activeViewId}` : '';
 
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
