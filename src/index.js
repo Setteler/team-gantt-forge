@@ -454,8 +454,9 @@ resolver.define('validateJql', async ({ payload }) => {
   const { jql } = payload;
   if (!jql || !jql.trim()) return { valid: false, count: 0, error: 'Empty JQL' };
   try {
+    // Use the classic search endpoint (not /search/jql) because it returns `total`
     const response = await api.asUser().requestJira(
-      route`/rest/api/3/search/jql?jql=${jql}&fields=summary&maxResults=1`
+      route`/rest/api/3/search?jql=${jql}&fields=summary&maxResults=1`
     );
     if (!response.ok) {
       const text = await response.text();
