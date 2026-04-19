@@ -10,7 +10,7 @@ modules:
 
   jira:dashboardGadget:
     - key: team-gantt-gadget
-      resource: gadget
+      resource: main
       edit:
         resource: gadget
       resolver:
