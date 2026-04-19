@@ -1,78 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import JqlInput from './JqlInput';
 
-function TimelineIcon({ size = 14, color = 'currentColor' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="1" y="2.5" width="7" height="2" rx="1" fill={color} opacity="0.85"/>
-      <rect x="4" y="6" width="8" height="2" rx="1" fill={color} opacity="0.85"/>
-      <rect x="2" y="9.5" width="5" height="2" rx="1" fill={color} opacity="0.85"/>
-    </svg>
-  );
-}
-
-function ListIcon({ size = 14, color = 'currentColor' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="1" y="2.5" width="2" height="2" rx="0.5" fill={color} opacity="0.7"/>
-      <rect x="4.5" y="2.5" width="8.5" height="2" rx="1" fill={color} opacity="0.85"/>
-      <rect x="1" y="6" width="2" height="2" rx="0.5" fill={color} opacity="0.7"/>
-      <rect x="4.5" y="6" width="8.5" height="2" rx="1" fill={color} opacity="0.85"/>
-      <rect x="1" y="9.5" width="2" height="2" rx="0.5" fill={color} opacity="0.7"/>
-      <rect x="4.5" y="9.5" width="8.5" height="2" rx="1" fill={color} opacity="0.85"/>
-    </svg>
-  );
-}
-
-function TreeIcon({ size = 14, color = 'currentColor' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="1" y="2" width="9" height="2" rx="1" fill={color} opacity="0.85"/>
-      <rect x="3.5" y="6" width="8" height="2" rx="1" fill={color} opacity="0.7"/>
-      <rect x="6" y="10" width="6.5" height="2" rx="1" fill={color} opacity="0.55"/>
-    </svg>
-  );
-}
-
-function RoadmapIcon({ size = 14, color = 'currentColor' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      <rect x="1" y="2" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
-      <rect x="1" y="6" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
-      <rect x="1" y="10" width="12" height="2" rx="1" fill={color} opacity="0.35"/>
-      <rect x="2" y="2.5" width="5" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
-      <rect x="4" y="6.5" width="7" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
-      <rect x="1.5" y="10.5" width="4" height="1.2" rx="0.6" fill={color} opacity="0.9"/>
-    </svg>
-  );
-}
-
-function ProjectIcon({ size = 14, color = 'currentColor' }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" style={{ flexShrink: 0 }}>
-      {/* Tree hierarchy lines on left */}
-      <rect x="1" y="2" width="4" height="1.5" rx="0.75" fill={color} opacity="0.85"/>
-      <rect x="2.5" y="5.5" width="3.5" height="1.5" rx="0.75" fill={color} opacity="0.65"/>
-      <rect x="2.5" y="9" width="3.5" height="1.5" rx="0.75" fill={color} opacity="0.65"/>
-      <rect x="1" y="12" width="4" height="1.5" rx="0.75" fill={color} opacity="0.85"/>
-      {/* Gantt bars on right */}
-      <rect x="7" y="2" width="5" height="1.5" rx="0.75" fill={color} opacity="0.9"/>
-      <rect x="8" y="5.5" width="5" height="1.5" rx="0.75" fill={color} opacity="0.7"/>
-      <rect x="7.5" y="9" width="4" height="1.5" rx="0.75" fill={color} opacity="0.7"/>
-      <rect x="7" y="12" width="6" height="1.5" rx="0.75" fill={color} opacity="0.9"/>
-      {/* Vertical connector on left side */}
-      <rect x="1.5" y="3.5" width="0.8" height="2" fill={color} opacity="0.4"/>
-      <rect x="1.5" y="7" width="0.8" height="2" fill={color} opacity="0.4"/>
-    </svg>
-  );
-}
-
 const VIEW_TYPE_META = {
-  timeline: { label: 'Gantt',    Icon: TimelineIcon, color: '#0073ea' },
-  list:     { label: 'List',     Icon: ListIcon,     color: '#00854d' },
-  tree:     { label: 'Tree',     Icon: TreeIcon,     color: '#FF8B00' },
-  roadmap:  { label: 'Roadmap',  Icon: RoadmapIcon,  color: '#6554C0' },
-  project:  { label: 'Project',  Icon: ProjectIcon,  color: '#00B8D9' },
+  timeline: { label: 'Gantt',   color: '#0073ea', dot: '#0073ea' },
+  list:     { label: 'List',    color: '#00854d', dot: '#00854d' },
+  tree:     { label: 'Tree',    color: '#FF8B00', dot: '#FF8B00' },
+  roadmap:  { label: 'Roadmap', color: '#6554C0', dot: '#6554C0' },
+  project:  { label: 'Project', color: '#00B8D9', dot: '#00B8D9' },
 };
 
 const MODULES = [
@@ -247,17 +181,17 @@ export default function ViewSidebar({
           <div
             style={{
               ...styles.folderRow,
+              borderLeft: '3px solid #97A0AF',
               background: isDragTarget ? '#E3FCEF' : hoveredFolderId === folder.id ? '#F4F5F7' : 'transparent',
               outline: isDragTarget ? '2px dashed #00875A' : 'none',
               outlineOffset: '-2px',
-              borderRadius: '4px',
+              borderRadius: '0 4px 4px 0',
             }}
             onMouseEnter={() => setHoveredFolderId(folder.id)}
             onMouseLeave={() => setHoveredFolderId(null)}
             onClick={() => !isRenamingFolder && toggleFolder(folder.id)}
           >
             <span style={styles.folderIcon}>{isCollapsed ? '\u25B8' : '\u25BE'}</span>
-            <span style={{ fontSize: '12px', flexShrink: 0 }}>{'\uD83D\uDCC1'}</span>
             {isRenamingFolder ? (
               <input
                 autoFocus
@@ -274,9 +208,13 @@ export default function ViewSidebar({
             ) : (
               <span style={styles.folderName}>{folder.name}</span>
             )}
-            {/* Filter indicator */}
+            {/* JQL filter indicator */}
             {folder.defaultJql && folder.defaultJql.trim() && !isRenamingFolder && (
-              <span style={{ fontSize: '10px', color: '#6B778C', opacity: 0.7 }} title="Has default filter">{'\uD83D\uDD0D'}</span>
+              <span style={{
+                fontSize: '10px', fontWeight: 700, color: '#6B778C',
+                background: '#F4F5F7', borderRadius: '4px', padding: '1px 6px',
+                flexShrink: 0, letterSpacing: '0.3px',
+              }} title="Has JQL filter">JQL</span>
             )}
             {hoveredFolderId === folder.id && !isRenamingFolder && (
               <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
@@ -546,7 +484,7 @@ export default function ViewSidebar({
           {/* View type toggle */}
           <div style={{ display: 'flex', gap: '4px' }}>
             {['timeline', 'list', 'tree', 'roadmap', 'project'].map(vt => {
-              const { label, Icon } = VIEW_TYPE_META[vt];
+              const { label, color } = VIEW_TYPE_META[vt];
               const active = newViewType === vt;
               return (
                 <button
@@ -554,14 +492,18 @@ export default function ViewSidebar({
                   style={{
                     flex: 1, border: '1px solid', borderRadius: '3px', padding: '5px 6px',
                     cursor: 'pointer', fontSize: '11px', fontWeight: 600,
-                    background: active ? VIEW_TYPE_META[vt].color : '#fff',
+                    background: active ? color : '#fff',
                     color: active ? '#fff' : '#6B778C',
-                    borderColor: active ? VIEW_TYPE_META[vt].color : '#DFE1E6',
+                    borderColor: active ? color : '#DFE1E6',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
                   }}
                   onClick={() => setNewViewType(vt)}
                 >
-                  <Icon size={12} color={active ? '#fff' : VIEW_TYPE_META[vt].color} /> {label}
+                  <span style={{
+                    width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0,
+                    background: active ? '#fff' : color,
+                  }} />
+                  {label}
                 </button>
               );
             })}
@@ -722,6 +664,7 @@ const modulePickerStyles = {
 // ── ViewRow Component ─────────────────────────────────────────────────────────
 
 function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canDelete, folders, isDragging, onHover, onSwitch, onStartRename, onRenameChange, onRenameConfirm, onRenameCancel, onDelete, onMoveToFolder, onDragStart, onDragEnd }) {
+  const meta = VIEW_TYPE_META[view.viewType || 'timeline'];
   const paddingLeft = 10 + (depth || 0) * 16 + (depth > 0 ? 18 : 0);
   return (
     <div
@@ -731,6 +674,8 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
       style={{
         ...styles.viewItem,
         paddingLeft: `${paddingLeft}px`,
+        borderLeft: `3px solid ${meta.color}`,
+        borderRadius: '0 4px 4px 0',
         background: isActive ? '#DEEBFF' : hovered ? '#F4F5F7' : 'transparent',
         color: isActive ? '#0073ea' : '#172B4D',
         opacity: isDragging ? 0.4 : 1,
@@ -755,30 +700,17 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
         />
       ) : (
         <>
-          {(() => {
-            const meta = VIEW_TYPE_META[view.viewType || 'timeline'];
-            return (
-              <span style={{ ...styles.viewIcon, display: 'flex', alignItems: 'center' }}>
-                <meta.Icon size={13} color={meta.color} />
-              </span>
-            );
-          })()}
           <span style={styles.viewName} onDoubleClick={(e) => { e.stopPropagation(); onStartRename(); }}>
             {view.name}
           </span>
-          {(() => {
-            const meta = VIEW_TYPE_META[view.viewType || 'timeline'];
-            return (
-              <span style={{
-                fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px',
-                color: meta.color, background: `${meta.color}18`,
-                borderRadius: '3px', padding: '1px 4px', flexShrink: 0,
-                opacity: isActive ? 1 : 0.75,
-              }}>
-                {meta.label}
-              </span>
-            );
-          })()}
+          <span style={{
+            fontSize: '11px', fontWeight: 700, letterSpacing: '0.2px',
+            color: meta.color, background: `${meta.color}26`,
+            borderRadius: '4px', padding: '2px 8px', flexShrink: 0,
+            opacity: isActive ? 1 : 0.8,
+          }}>
+            {meta.label}
+          </span>
           {hovered && !isDragging && (
             <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
               <button style={styles.actionBtn} title="Rename" onClick={onStartRename}>{'\u270F'}</button>
@@ -820,7 +752,6 @@ const styles = {
     display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
     borderRadius: '4px', margin: '1px 4px', position: 'relative', minHeight: '30px',
   },
-  viewIcon: { fontSize: '13px', flexShrink: 0, opacity: 0.7 },
   viewName: { fontSize: '13px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewActions: { display: 'flex', gap: '2px', flexShrink: 0, alignItems: 'center' },
   actionBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', padding: '2px 4px', borderRadius: '3px', color: '#6B778C', lineHeight: 1 },
