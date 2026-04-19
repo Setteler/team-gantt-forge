@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke, view as forgeView } from '@forge/bridge';
+import { invoke } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
 import ListView from './components/ListView';
 // TreeView and RoadmapView are not imported — those view types have been
@@ -15,7 +15,8 @@ import ReportsModule from './components/ReportsModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import { getFieldValue } from './utils';
-import GadgetMode from './components/GadgetMode';
+// GadgetMode is used by the separate gadget build (static/gadget/),
+// not by the main app. No import needed here.
 
 const MONTH_NAMES = [
   'January','February','March','April','May','June',
@@ -47,19 +48,6 @@ const DEFAULT_CONFIG = {
 };
 
 export default function App() {
-  // Detect if we're running as a dashboard gadget
-  const [isGadget, setIsGadget] = useState(null); // null = checking, true/false = resolved
-  useEffect(() => {
-    forgeView.getContext().then(ctx => {
-      const type = ctx?.extension?.type;
-      setIsGadget(type === 'jira:dashboardGadget');
-    }).catch(() => setIsGadget(false));
-  }, []);
-
-  // If gadget mode, delegate to GadgetMode component entirely
-  if (isGadget === null) return null; // still checking context
-  if (isGadget) return <GadgetMode />;
-
   const today = new Date();
 
   const [issues, setIssues]                     = useState([]);
