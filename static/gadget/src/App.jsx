@@ -236,9 +236,7 @@ export default function App() {
             </div>
           )}
 
-          <button style={s.openBtn}
-            onClick={() => router.open('/jira/apps/fa18fadb-8536-4e8a-b8a3-86cf7a1f9068')}
-          >Open in Team Gantt →</button>
+          {/* No link to full app — gadget is self-contained */}
         </>
       )}
     </div>
