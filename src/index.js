@@ -455,7 +455,7 @@ resolver.define('validateJql', async ({ payload }) => {
   if (!jql || !jql.trim()) return { valid: false, count: 0, error: 'Empty JQL' };
   try {
     const response = await api.asUser().requestJira(
-      route`/rest/api/3/search/jql?jql=${jql}&maxResults=0`
+      route`/rest/api/3/search/jql?jql=${jql}&fields=summary&maxResults=1`
     );
     if (!response.ok) {
       const text = await response.text();
