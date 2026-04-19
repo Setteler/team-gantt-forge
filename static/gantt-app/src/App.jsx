@@ -86,7 +86,7 @@ export default function App() {
   const [showConfig, setShowConfig]         = useState(false);
   const [ganttFilter, setGanttFilter]       = useState('all');
   const [showCriticalPath, setShowCriticalPath] = useState(true);
-  const [linkCopied, setLinkCopied] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
 
   // ── Baselines ──────────────────────────────────────────────────────────────
   const [baselines, setBaselines]             = useState([]);
@@ -584,17 +584,11 @@ export default function App() {
     return saved;
   }
 
-  // ── Copy link to clipboard ────────────────────────────────────────────────
-  function copyAppLink() {
-    try {
-      const url = window.parent.location.href;
-      navigator.clipboard.writeText(url);
-    } catch {
-      // Fallback: if cross-origin blocks parent access, use own location
-      navigator.clipboard.writeText(window.location.href);
-    }
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+  // ── Share dialog ───────────────────────────────────────────────────────────
+  function getShareUrl() {
+    // Build the cleanest possible Jira app URL
+    try { return window.parent.location.href.split('#')[0]; } catch {}
+    return window.location.href.split('#')[0];
   }
 
   // ── Timeline navigation ───────────────────────────────────────────────────
@@ -670,12 +664,9 @@ export default function App() {
           <div style={{ position: 'relative', display: 'inline-flex' }}>
             <button
               style={styles.shareLinkBtn}
-              onClick={copyAppLink}
-              title="Copy link to this app"
-            >{'\uD83D\uDD17'}</button>
-            {linkCopied && (
-              <span style={styles.linkCopiedTooltip}>Link copied!</span>
-            )}
+              onClick={() => setShowShareDialog(true)}
+              title="Share this view"
+            >Share</button>
           </div>
           <button
             style={{ ...styles.configBtn, background: isDirty ? '#FFFAE6' : '#fff', borderColor: isDirty ? '#FF8B00' : '#DFE1E6' }}
@@ -887,9 +878,83 @@ export default function App() {
           onClose={closeEventModal}
         />
       )}
+
+      {/* ── Share dialog ── */}
+      {showShareDialog && (
+        <div style={shareStyles.overlay} onClick={() => setShowShareDialog(false)}>
+          <div style={shareStyles.modal} onClick={e => e.stopPropagation()}>
+            <div style={shareStyles.header}>
+              <span style={shareStyles.title}>Share this view</span>
+              <button style={shareStyles.close} onClick={() => setShowShareDialog(false)}>✕</button>
+            </div>
+            <div style={shareStyles.body}>
+              <p style={shareStyles.desc}>
+                Anyone with access to this Jira site can open this link to view <b>{activeView?.name || 'this view'}</b>.
+              </p>
+              <div style={shareStyles.urlRow}>
+                <input
+                  readOnly
+                  value={getShareUrl()}
+                  style={shareStyles.urlInput}
+                  onFocus={e => e.target.select()}
+                />
+                <button
+                  style={shareStyles.copyBtn}
+                  onClick={(e) => {
+                    const url = getShareUrl();
+                    // Forge iframe clipboard fallback: select hidden input + execCommand
+                    try { navigator.clipboard.writeText(url); } catch {}
+                    const inp = e.currentTarget.previousSibling;
+                    inp.select();
+                    document.execCommand('copy');
+                    e.currentTarget.textContent = 'Copied!';
+                    setTimeout(() => { e.currentTarget.textContent = 'Copy'; }, 2000);
+                  }}
+                >Copy</button>
+              </div>
+              <p style={shareStyles.hint}>Tip: set a view as the ★ default so others land on it when they open the link.</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const shareStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, background: 'rgba(9,30,66,0.54)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+  },
+  modal: {
+    background: '#fff', borderRadius: '8px', width: '440px', maxWidth: '90vw',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.3)', overflow: 'hidden',
+  },
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '16px 20px', borderBottom: '1px solid #DFE1E6',
+  },
+  title: { fontWeight: 700, fontSize: '16px', color: '#172B4D' },
+  close: {
+    background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px',
+    color: '#6B778C', width: '28px', height: '28px', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', borderRadius: '4px',
+  },
+  body: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' },
+  desc: { fontSize: '13px', color: '#42526E', margin: 0, lineHeight: 1.5 },
+  urlRow: { display: 'flex', gap: '8px' },
+  urlInput: {
+    flex: 1, border: '1px solid #DFE1E6', borderRadius: '4px', padding: '8px 10px',
+    fontSize: '12px', color: '#172B4D', fontFamily: 'monospace', background: '#F4F5F7',
+    outline: 'none',
+  },
+  copyBtn: {
+    background: '#0052CC', color: '#fff', border: 'none', borderRadius: '4px',
+    padding: '8px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+    flexShrink: 0, minWidth: '70px',
+  },
+  hint: { fontSize: '11px', color: '#97A0AF', margin: 0, fontStyle: 'italic' },
+};
 
 const styles = {
   root: {
@@ -939,14 +1004,8 @@ const styles = {
   },
   shareLinkBtn: {
     background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
-    width: '30px', height: '30px', cursor: 'pointer', fontSize: '14px', color: '#676879',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  linkCopiedTooltip: {
-    position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-    marginTop: '4px', background: '#172B4D', color: '#fff', fontSize: '11px',
-    fontWeight: 600, padding: '4px 10px', borderRadius: '4px', whiteSpace: 'nowrap',
-    zIndex: 30, pointerEvents: 'none',
+    padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+    color: '#676879',
   },
   refreshBtn: {
     background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
