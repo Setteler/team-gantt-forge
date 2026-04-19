@@ -151,14 +151,10 @@ function packItems(items, sdf, edf) {
     return { item, s, e };
   });
 
-  // Sort by start date, stable tie-breaker by key/id
-  dated.sort((a, b) => {
-    const diff = a.s - b.s;
-    if (diff !== 0) return diff;
-    const ak = a.item.key || a.item.id || '';
-    const bk = b.item.key || b.item.id || '';
-    return ak.localeCompare(bk);
-  });
+  // Keep original array order — don't re-sort by date.
+  // This prevents issues from jumping to a new position after drag-to-move.
+  // The API returns issues sorted by ORDER BY, so initial load is ordered.
+  // Drag changes dates in-place without re-fetch, so order stays stable.
 
   const lanes = [];     // each lane = array of items
   const laneEnds = [];  // max end date per lane

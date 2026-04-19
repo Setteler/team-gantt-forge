@@ -47,16 +47,16 @@ export default function GadgetMode() {
   const [loading, setLoading] = useState(true);
   const rootRef = useRef(null);
 
-  // Auto-resize the gadget iframe to fit content (must be before any returns)
+  // Resize gadget iframe — hardcode 600px minimum for the Gantt to be usable
   useEffect(() => {
-    if (!rootRef.current) return;
     const resize = () => {
-      const h = Math.max(400, rootRef.current.scrollHeight || 500);
+      const content = rootRef.current?.scrollHeight || 0;
+      const h = Math.max(600, content);
       try { forgeView.resize({ height: `${h}px` }); } catch {}
     };
     resize();
     const t1 = setTimeout(resize, 500);
-    const t2 = setTimeout(resize, 1500);
+    const t2 = setTimeout(resize, 2000);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [issues, loading, viewId]);
 
