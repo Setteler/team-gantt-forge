@@ -126,6 +126,11 @@ export default function ProjectView({
   // Collapsed columns — double-click header to collapse to a narrow strip
   // with vertical text. Double-click again to expand.
   const [collapsedCols, setCollapsedCols] = useState(new Set());
+  // User-set column widths keyed by fieldId (override of auto-computed width)
+  const [colWidthOverrides, setColWidthOverrides] = useState({});
+  // x-position of the full-height blue guide shown while any resize is in
+  // progress (tree/timeline divider, Name column, or per-field column).
+  const [resizeGuideX, setResizeGuideX] = useState(null);
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -427,47 +432,57 @@ export default function ProjectView({
 
   function cancelEdit() { setEditingCell(null); }
 
-  // ── Name column drag: resize just the Name column ──────────────────────
-  function startNameColDrag(e) {
+  // Shared helper: run a column-resize drag. During the drag, `resizeGuideX`
+  // tracks the mouse x so a full-height blue line is rendered across the
+  // whole view as a visual ruler.
+  function runColumnResizeDrag(e, getDelta, apply) {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    const startWidth = nameColWidth;
+    setResizeGuideX(startX);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     function onMove(ev) {
-      const delta = ev.clientX - startX;
-      setNameWidthUser(Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, startWidth + delta)));
+      apply(getDelta(ev.clientX - startX));
+      setResizeGuideX(ev.clientX);
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setResizeGuideX(null);
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
 
-  // ── Divider drag: split between table (left) and timeline (right) ───────
+  // ── Name column drag ────────────────────────────────────────────────────
+  function startNameColDrag(e) {
+    const startW = nameColWidth;
+    runColumnResizeDrag(e, d => d, d => {
+      setNameWidthUser(Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, startW + d)));
+    });
+  }
+
+  // ── Per-field column drag ──────────────────────────────────────────────
+  function startFieldColDrag(e, fieldId) {
+    if (collapsedCols.has(fieldId)) return; // can't resize a collapsed column
+    const startW = widthOf(fieldId);
+    runColumnResizeDrag(e, d => d, d => {
+      setColWidthOverrides(prev => ({
+        ...prev,
+        [fieldId]: Math.max(FIELD_COL_MIN, startW + d),
+      }));
+    });
+  }
+
+  // ── Tree / timeline divider drag ───────────────────────────────────────
   function startDividerDrag(e) {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startWidth = treeWidth;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    function onMove(ev) {
-      const delta = ev.clientX - startX;
-      setTreeWidth(Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, startWidth + delta)));
-    }
-    function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    const startW = treeWidth;
+    runColumnResizeDrag(e, d => d, d => {
+      setTreeWidth(Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, startW + d)));
+    });
   }
 
   // ── Scroll sync: timeline header ← body horizontal scroll ───────────────
@@ -798,30 +813,47 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // Per-column width. Collapsed columns always render at COLLAPSED_COL_WIDTH
-  // (just enough for vertical column-name text). Normal columns share the
-  // remaining space.
+  // Per-column width. Priority per column:
+  //   collapsed? → COLLAPSED_COL_WIDTH (28)
+  //   user-set override? → that value
+  //   otherwise → computed "normalW" (shared with peer non-collapsed cols)
   const COLLAPSED_COL_WIDTH = 28;
   const { nameColWidth, widthOf, treeContentWidth } = (() => {
     const desiredName = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
-    const collapsedN = extraFields.filter(f => collapsedCols.has(f.id)).length;
-    const normalN    = extraFields.length - collapsedN;
-    const collapsedTotal = collapsedN * COLLAPSED_COL_WIDTH;
-    const natural = desiredName + collapsedTotal + normalN * FIELD_COL_NATURAL;
-    const widthFor = (w) => (fid) => collapsedCols.has(fid) ? COLLAPSED_COL_WIDTH : w;
+    const normalFields = extraFields.filter(f => !collapsedCols.has(f.id));
+    const overriddenFields = normalFields.filter(f => colWidthOverrides[f.id]);
+    const autoFields = normalFields.filter(f => !colWidthOverrides[f.id]);
+    const collapsedTotal = (extraFields.length - normalFields.length) * COLLAPSED_COL_WIDTH;
+    const overrideTotal = overriddenFields.reduce((a, f) => a + colWidthOverrides[f.id], 0);
+    const autoNatural = autoFields.length * FIELD_COL_NATURAL;
+    const natural = desiredName + collapsedTotal + overrideTotal + autoNatural;
+    const makeResolver = (normalW) => (fid) => {
+      if (collapsedCols.has(fid)) return COLLAPSED_COL_WIDTH;
+      if (colWidthOverrides[fid]) return colWidthOverrides[fid];
+      return normalW;
+    };
     if (!showTimeline || treeWidth >= natural) {
-      return { nameColWidth: desiredName, widthOf: widthFor(FIELD_COL_NATURAL), treeContentWidth: natural };
+      return { nameColWidth: desiredName, widthOf: makeResolver(FIELD_COL_NATURAL), treeContentWidth: natural };
     }
-    // Tight: shrink normal columns first, keep collapsed fixed.
-    const availableForNormal = Math.max(0, treeWidth - desiredName - collapsedTotal);
-    const normalW = normalN > 0 ? Math.max(FIELD_COL_MIN, availableForNormal / normalN) : 0;
-    const total = desiredName + collapsedTotal + normalN * normalW;
-    return { nameColWidth: desiredName, widthOf: widthFor(normalW), treeContentWidth: total };
+    // Tight: shrink only the "auto" (un-overridden) columns.
+    const availableForAuto = Math.max(0, treeWidth - desiredName - collapsedTotal - overrideTotal);
+    const autoW = autoFields.length > 0 ? Math.max(FIELD_COL_MIN, availableForAuto / autoFields.length) : 0;
+    const total = desiredName + collapsedTotal + overrideTotal + autoFields.length * autoW;
+    return { nameColWidth: desiredName, widthOf: makeResolver(autoW), treeContentWidth: total };
   })();
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
   return (
     <div style={s.outer}>
+      {/* Full-height blue guide line shown during any column resize drag —
+          helps visually align the new column boundary with the timeline. */}
+      {resizeGuideX != null && (
+        <div style={{
+          position: 'fixed', top: 0, bottom: 0, left: resizeGuideX - 1, width: 2,
+          background: '#0073ea', zIndex: 10000, pointerEvents: 'none',
+          boxShadow: '0 0 0 1px rgba(0,115,234,0.15)',
+        }} />
+      )}
       {/* ── Tree header (sticky top-left) ── */}
       <div style={{ ...s.treeHeader, width: leftPanelWidth, overflow: 'hidden' }}>
         <div style={{ display: 'flex', width: treeContentWidth, height: '100%' }}>
@@ -874,10 +906,11 @@ export default function ProjectView({
                 onDragEnd={handleColDragEnd}
                 onClick={(e) => handleHeaderClick(e, f.id)}
                 onDoubleClick={(e) => handleHeaderDoubleClick(e, f.id)}
-                title={isCollapsedCol ? `${f.name} (collapsed — double-click to expand)` : `${f.name} — click to sort, double-click to collapse`}
+                title={isCollapsedCol ? `${f.name} (collapsed — double-click to expand)` : `${f.name} — click to sort, double-click to collapse, drag the right edge to resize`}
                 style={{
                   ...s.fieldColHeader,
                   width: w,
+                  position: 'relative',
                   cursor: 'pointer',
                   opacity: isDragging ? 0.4 : 1,
                   boxShadow: isDropTarget ? 'inset 2px 0 0 #0073ea' : 'none',
@@ -894,17 +927,34 @@ export default function ProjectView({
                     textTransform: 'uppercase', letterSpacing: 0.3,
                     padding: '8px 0',
                   }}>
-                    {f.name}{isSorted ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                    {f.name} {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
                   </span>
                 ) : (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 }}>
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                    {isSorted && (
-                      <span style={{ color: '#0052CC', fontSize: 10, flexShrink: 0 }}>
-                        {sortDir === 'asc' ? '▲' : '▼'}
-                      </span>
-                    )}
+                    {/* Always-visible sort indicator so users know the column is sortable */}
+                    <span style={{
+                      color: isSorted ? '#0052CC' : '#C1C7D0',
+                      fontSize: 10, flexShrink: 0, lineHeight: 1,
+                    }}>
+                      {isSorted ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
                   </span>
+                )}
+                {/* Right-edge resize handle (not on collapsed columns) */}
+                {!isCollapsedCol && (
+                  <div
+                    onMouseDown={(e) => startFieldColDrag(e, f.id)}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
+                      cursor: 'col-resize', zIndex: 13,
+                      background: 'transparent', transition: 'background 0.12s',
+                    }}
+                    title="Drag to resize column"
+                  />
                 )}
               </div>
             );
