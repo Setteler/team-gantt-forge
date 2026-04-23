@@ -776,7 +776,7 @@ const s = {
   treeHeader: {
     position: 'absolute', left: 0, top: 0,
     height: HEADER_HEIGHT, zIndex: 12,
-    background: '#fff', borderBottom: '2px solid #e6e9ef', borderRight: '2px solid #e6e9ef',
+    background: '#fff', borderBottom: '1px solid #E1E4E8', borderRight: '1px solid #E1E4E8',
     display: 'flex', alignItems: 'center', gap: 0,
     boxSizing: 'border-box',
   },
@@ -796,14 +796,14 @@ const s = {
     flexShrink: 0, boxSizing: 'border-box',
     padding: '0 8px', fontSize: '10px', fontWeight: 700, color: '#6B778C',
     textTransform: 'uppercase', letterSpacing: '0.4px',
-    borderLeft: '1px solid #e6e9ef', height: '100%',
+    borderLeft: '1px solid #E1E4E8', height: '100%',
     display: 'flex', alignItems: 'center',
     whiteSpace: 'nowrap', overflow: 'hidden',
   },
   fieldCell: {
     flexShrink: 0, boxSizing: 'border-box',
     padding: '0 8px', fontSize: '11px', color: '#42526E',
-    borderLeft: '1px solid #f0f1f3',
+    borderLeft: '1px solid #E1E4E8',
     display: 'flex', alignItems: 'center',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
     height: '100%',
@@ -813,7 +813,7 @@ const s = {
   timelineHeaderWrap: {
     position: 'absolute', top: 0, right: 0,
     height: HEADER_HEIGHT, overflowX: 'hidden',
-    background: '#fff', borderBottom: '2px solid #e6e9ef', zIndex: 11,
+    background: '#fff', borderBottom: '1px solid #E1E4E8', zIndex: 11,
   },
 
   // ── Body (scrolls both ways) ──
@@ -826,7 +826,7 @@ const s = {
   treeColumn: {
     flexShrink: 0,
     position: 'sticky', left: 0, zIndex: 6,
-    background: '#fff', borderRight: '2px solid #e6e9ef',
+    background: '#fff', borderRight: '1px solid #E1E4E8',
   },
 
   // ── Tree row ──
