@@ -668,7 +668,7 @@ export default function ProjectView({
                     background: isSelected ? '#DEEBFF' : isHovered ? '#F4F5F7' : '#fff',
                   }}
                   onClick={() => setSelectedKey(row.key)}
-                  onDoubleClick={() => router.navigate(`/browse/${row.key}`)}
+                  onDoubleClick={() => router.open(`/browse/${row.key}`)}
                   onMouseEnter={() => setHoveredKey(row.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
