@@ -111,7 +111,12 @@ export default function ProjectView({
   const [selectedKey, setSelectedKey] = useState(null);
   const [hoveredKey, setHoveredKey]   = useState(null);
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
-  const [treeWidth, setTreeWidth]     = useState(TREE_WIDTH_DEFAULT);
+  // Initial tree-panel width sized to fit every column at natural width
+  // (so whatever the user had saved shows up fully on first render).
+  const [treeWidth, setTreeWidth]     = useState(() => {
+    const fieldCount = (listFields || []).filter(fid => fid && fid !== 'summary').length;
+    return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_DEFAULT, NAME_COL_DEFAULT + fieldCount * FIELD_COL_NATURAL));
+  });
   const [nameWidthUser, setNameWidthUser] = useState(NAME_COL_DEFAULT);
   const [showTimeline, setShowTimeline] = useState(true);
   const [dragFieldId, setDragFieldId] = useState(null);
