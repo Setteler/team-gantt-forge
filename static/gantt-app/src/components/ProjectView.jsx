@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from '@forge/bridge';
 
-const NAME_COL_WIDTH     = 340; // fixed — Name never collapses
-const FIELD_COL_WIDTH    = 140; // fixed per-field
-const TREE_WIDTH_DEFAULT = 600; // viewport width of the whole table before timeline
-const TREE_WIDTH_MIN     = 260; // can shrink until just Name is visible
+const NAME_COL_NATURAL   = 340; // preferred Name-column width
+const NAME_COL_MIN       = 240; // Name never collapses below this
+const FIELD_COL_NATURAL  = 140; // preferred width per extra field
+const FIELD_COL_MIN      = 28;  // collapsed field — only a sliver visible (like Jira Advanced Roadmaps)
+const TREE_WIDTH_DEFAULT = 600;
+const TREE_WIDTH_MIN     = 260;
 const TREE_WIDTH_MAX     = 1600;
 const DAY_WIDTH     = 38;
 const ROW_HEIGHT    = 32;
@@ -559,11 +561,26 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // Total content width inside the table panel (Name + all fields at fixed widths).
-  // The table panel viewport is treeWidth; if content > treeWidth, extra columns
-  // are clipped on the right — user widens the panel via the tree/timeline divider.
-  const treeContentWidth = NAME_COL_WIDTH + extraFields.length * FIELD_COL_WIDTH;
-  const leftPanelWidth   = showTimeline ? treeWidth : '100%';
+  // Columns auto-shrink to fit the table panel width (treeWidth). When the
+  // user drags the divider to give more room to the timeline, extra-field
+  // columns squeeze down to FIELD_COL_MIN (~28px) so only the column
+  // separator is visible — similar to Jira Advanced Roadmaps. Name column
+  // stays at NAME_COL_MIN so issue keys/titles remain readable.
+  const { nameColWidth, fieldColWidth, treeContentWidth } = (() => {
+    const n = extraFields.length;
+    const natural = NAME_COL_NATURAL + n * FIELD_COL_NATURAL;
+    // Plenty of room: use natural widths. Tree content may be narrower than
+    // the panel; that's fine, extra whitespace on the right.
+    if (!showTimeline || treeWidth >= natural) {
+      return { nameColWidth: NAME_COL_NATURAL, fieldColWidth: FIELD_COL_NATURAL, treeContentWidth: natural };
+    }
+    // Tight: shrink fields first, keeping Name at its minimum usable size.
+    const available = Math.max(treeWidth, NAME_COL_MIN + n * FIELD_COL_MIN);
+    const nameW = NAME_COL_MIN;
+    const fieldW = n > 0 ? Math.max(FIELD_COL_MIN, (available - nameW) / n) : 0;
+    return { nameColWidth: nameW, fieldColWidth: fieldW, treeContentWidth: nameW + n * fieldW };
+  })();
+  const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
   return (
     <div style={s.outer}>
@@ -571,7 +588,7 @@ export default function ProjectView({
       <div style={{ ...s.treeHeader, width: leftPanelWidth, overflow: 'hidden' }}>
         <div style={{ display: 'flex', width: treeContentWidth, height: '100%' }}>
           {/* Name column header */}
-          <div style={{ width: NAME_COL_WIDTH, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div style={{ width: nameColWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', boxSizing: 'border-box', overflow: 'hidden' }}>
             <span style={s.treeHeaderLabel}>Name</span>
             <span style={s.treeHeaderStats}>
               {issues.length} issue{issues.length !== 1 ? 's' : ''} &middot; {roots.length} root{roots.length !== 1 ? 's' : ''}
@@ -600,10 +617,10 @@ export default function ProjectView({
                 onDragOver={(e) => handleColDragOver(e, f.id)}
                 onDrop={(e) => handleColDrop(e, f.id)}
                 onDragEnd={handleColDragEnd}
-                title="Drag to reorder"
+                title={`${f.name} — drag to reorder`}
                 style={{
                   ...s.fieldColHeader,
-                  width: FIELD_COL_WIDTH,
+                  width: fieldColWidth,
                   cursor: 'grab',
                   opacity: isDragging ? 0.4 : 1,
                   boxShadow: isDropTarget ? 'inset 2px 0 0 #0073ea' : 'none',
@@ -656,7 +673,7 @@ export default function ProjectView({
                   onMouseLeave={() => setHoveredKey(null)}
                 >
                   {/* Name cell — fixed width, never collapses */}
-                  <div style={{ width: NAME_COL_WIDTH, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
+                  <div style={{ width: nameColWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
                     {row.hasKids ? (
                       <span
                         style={s.toggle}
@@ -675,7 +692,7 @@ export default function ProjectView({
                   </div>
                   {/* Extra field cells — each fixed width */}
                   {extraFields.map(f => (
-                    <div key={f.id} style={{ ...s.fieldCell, width: FIELD_COL_WIDTH }}>
+                    <div key={f.id} style={{ ...s.fieldCell, width: fieldColWidth }}>
                       {renderFieldValue(iss.fields?.[f.id])}
                     </div>
                   ))}

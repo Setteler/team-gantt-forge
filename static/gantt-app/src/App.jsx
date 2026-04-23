@@ -33,6 +33,7 @@ import FeatureStatusModule from './components/FeatureStatusModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
 import Toolbar from './components/Toolbar';
+import FilterBar from './components/FilterBar';
 import { getFieldValue } from './utils';
 // GadgetMode is used by the separate gadget build (static/gadget/),
 // not by the main app. No import needed here.
@@ -60,11 +61,30 @@ const DEFAULT_CONFIG = {
   endDateField: 'duedate',
   listFields: ['summary','status','assignee','customfield_10015','duedate'],
   previewFields: ['status','priority','assignee','customfield_10015','duedate'],
+  filterFields: [],     // fields that appear as chips in the filter bar
+  filterValues: {},     // { fieldId: [selectedValue1, selectedValue2, ...] }
   viewType: 'timeline',
   orderByField: 'duedate',
   orderByDir: 'ASC',
   eventsOnly: false,
 };
+
+// Free-text fields can't sensibly be value-pickers — exclude from the Filter
+// column in the Fields popover.
+const FREE_TEXT_FIELD_IDS = new Set(['summary', 'description', 'environment']);
+
+// Extract a comparable list of values from an issue's field. Arrays produce
+// multi-value (for labels, components, versions). Used by the filter chips.
+function getFieldValuesForFilter(fields, key) {
+  const v = fields?.[key];
+  if (v == null) return [];
+  if (typeof v === 'string') return v ? [v] : [];
+  if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
+  if (Array.isArray(v)) {
+    return v.map(x => (typeof x === 'string' ? x : (x?.name || x?.value || x?.displayName || null))).filter(Boolean);
+  }
+  return [v.displayName || v.name || v.value || v.key].filter(Boolean);
+}
 
 // ── Style objects declared before App() to avoid TDZ in minified bundles ─────
 const shareStyles = {
@@ -225,6 +245,8 @@ export default function App() {
   const [startDateField, setStartDateField]     = useState(DEFAULT_CONFIG.startDateField);
   const [endDateField, setEndDateField]         = useState(DEFAULT_CONFIG.endDateField);
   const [listFields, setListFields]             = useState(DEFAULT_CONFIG.listFields);
+  const [filterFields, setFilterFields]         = useState(DEFAULT_CONFIG.filterFields);
+  const [filterValues, setFilterValues]         = useState(DEFAULT_CONFIG.filterValues);
   const [previewFields, setPreviewFields]       = useState(DEFAULT_CONFIG.previewFields);
   const [viewType, setViewType]                 = useState(DEFAULT_CONFIG.viewType);
   const [orderByField, setOrderByField]         = useState(DEFAULT_CONFIG.orderByField);
@@ -313,6 +335,8 @@ export default function App() {
     setStartDateField(view.startDateField || 'customfield_10015');
     setEndDateField(view.endDateField || 'duedate');
     setListFields(view.listFields || DEFAULT_CONFIG.listFields);
+    setFilterFields(view.filterFields || DEFAULT_CONFIG.filterFields);
+    setFilterValues(view.filterValues || DEFAULT_CONFIG.filterValues);
     setPreviewFields(view.previewFields || DEFAULT_CONFIG.previewFields);
     setViewType(view.viewType || 'timeline');
     setOrderByField(view.orderByField || 'duedate');
@@ -334,6 +358,8 @@ export default function App() {
     endDateField   !== (activeView.endDateField   || 'duedate') ||
     JSON.stringify(listFields) !== JSON.stringify(activeView.listFields || DEFAULT_CONFIG.listFields) ||
     JSON.stringify(previewFields) !== JSON.stringify(activeView.previewFields || DEFAULT_CONFIG.previewFields) ||
+    JSON.stringify(filterFields) !== JSON.stringify(activeView.filterFields || DEFAULT_CONFIG.filterFields) ||
+    JSON.stringify(filterValues) !== JSON.stringify(activeView.filterValues || DEFAULT_CONFIG.filterValues) ||
     viewType       !== (activeView.viewType       || 'timeline') ||
     orderByField   !== (activeView.orderByField   || 'duedate') ||
     orderByDir     !== (activeView.orderByDir     || 'ASC') ||
@@ -522,7 +548,8 @@ export default function App() {
       ...view,
       selectedProjects, statusFilter, jqlFilter,
       groupByFields, startDateField, endDateField,
-      listFields, previewFields, viewType, orderByField, orderByDir, eventsOnly,
+      listFields, previewFields, filterFields, filterValues,
+      viewType, orderByField, orderByDir, eventsOnly,
     };
     await invoke('saveView', { view: updated });
     setViews(prev => prev.map(v => v.id === activeViewId ? updated : v));
@@ -864,6 +891,21 @@ export default function App() {
 
   const monthLabel = `${MONTH_NAMES[visMonth]} ${visYear}`;
 
+  // Apply filter-chip selections to the visible issue set. An issue passes a
+  // field's filter if any of its values for that field is in the chosen set.
+  // No values chosen for a field = no filter on that field.
+  const filteredIssues = React.useMemo(() => {
+    const activeFilters = Object.entries(filterValues || {}).filter(([, vals]) => Array.isArray(vals) && vals.length > 0);
+    if (activeFilters.length === 0) return issues;
+    return issues.filter(iss => {
+      for (const [fid, selected] of activeFilters) {
+        const values = getFieldValuesForFilter(iss.fields, fid);
+        if (!values.some(v => selected.includes(v))) return false;
+      }
+      return true;
+    });
+  }, [issues, filterValues]);
+
   return (
     <div style={styles.root}>
       {/* ── App header (sidebar toggle + title) ── */}
@@ -901,6 +943,8 @@ export default function App() {
         onListFieldsChange={setListFields}
         previewFields={previewFields}
         onPreviewFieldsChange={setPreviewFields}
+        filterFields={filterFields}
+        onFilterFieldsChange={setFilterFields}
         orderByField={orderByField}
         orderByDir={orderByDir}
         onOrderByFieldChange={setOrderByField}
@@ -929,6 +973,17 @@ export default function App() {
         onJumpToToday={jumpToToday}
         activeModuleId={activeModuleId}
       />
+
+      {/* ── Filter chips bar (only when the view has any filter fields) ── */}
+      {!activeModuleId && (
+        <FilterBar
+          filterFields={filterFields}
+          filterValues={filterValues}
+          onFilterValuesChange={setFilterValues}
+          issues={issues}
+          availableFields={availableFields}
+        />
+      )}
 
       {/* ── Truncation warning ── */}
       {issuesTruncated && !activeModuleId && (
@@ -992,7 +1047,7 @@ export default function App() {
             </div>
           ) : viewType === 'list' ? (
             <ListView
-              issues={issues}
+              issues={filteredIssues}
               customEvents={customEvents}
               listFields={listFields}
               availableFields={availableFields}
@@ -1005,7 +1060,7 @@ export default function App() {
             />
           ) : viewType === 'project' ? (
             <ProjectView
-              issues={issues}
+              issues={filteredIssues}
               today={today}
               startDateField={startDateField}
               endDateField={endDateField}
@@ -1021,7 +1076,7 @@ export default function App() {
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'
                view types — they render as Gantt until the user switches their type. */
             <GanttChart
-              issues={ganttFilter === 'events' ? [] : issues}
+              issues={ganttFilter === 'events' ? [] : filteredIssues}
               customEvents={ganttFilter === 'issues' ? [] : customEvents}
               today={today}
               groupByFields={groupByFields}

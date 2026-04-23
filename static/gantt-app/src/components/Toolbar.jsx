@@ -17,6 +17,10 @@ const DEFAULT_START_FIELD = 'customfield_10015';
 const DEFAULT_END_FIELD   = 'duedate';
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
+// Free-text fields don't make sense as filter chips (value-picker would show
+// every unique summary/description string).
+const FREE_TEXT_FIELD_IDS = new Set(['summary', 'description', 'environment']);
+
 function filterFields(list, search) {
   if (!search) return list;
   const q = search.toLowerCase();
@@ -281,6 +285,7 @@ export default function Toolbar({
   startDateField, endDateField, onStartDateFieldChange, onEndDateFieldChange,
   listFields, onListFieldsChange,
   previewFields, onPreviewFieldsChange,
+  filterFields, onFilterFieldsChange,
   orderByField, orderByDir, onOrderByFieldChange, onOrderByDirChange,
   onViewTypeChange,
   eventsOnly, onEventsOnlyChange,
@@ -637,11 +642,11 @@ export default function Toolbar({
 
       {/* ── Fields ── */}
       {openPopover === 'fields' && (
-        <Popover anchorRect={anchorRect} onClose={closePop} minWidth={300}>
+        <Popover anchorRect={anchorRect} onClose={closePop} minWidth={isList ? 380 : 300}>
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f0f1f3' }}>
-            <div style={{ fontSize: '13px', fontWeight: 700, color: '#172B4D' }}>{isList ? 'Columns' : 'Hover preview fields'}</div>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#172B4D' }}>{isList ? 'Fields' : 'Hover preview fields'}</div>
             <div style={{ fontSize: '11px', color: '#97A0AF', marginTop: '2px' }}>
-              {isList ? 'Choose which columns appear in the table' : 'Fields shown when hovering over a bar'}
+              {isList ? 'Pick which fields appear as table columns or filter chips' : 'Fields shown when hovering over a bar'}
             </div>
           </div>
           <div style={{ padding: '10px 16px' }}>
@@ -651,24 +656,82 @@ export default function Toolbar({
               placeholder="Search…"
               style={{ width: '100%', border: '1px solid #e1e4e8', borderRadius: '5px', padding: '6px 10px', fontSize: '12px', outline: 'none', boxSizing: 'border-box', marginBottom: '8px' }}
             />
-            <div style={{ border: '1px solid #e1e4e8', borderRadius: '5px', maxHeight: '220px', overflowY: 'auto' }}>
-              {allFields.filter(f => {
-                const q = isList ? colSearch : previewSearch;
-                return !q || f.name.toLowerCase().includes(q.toLowerCase());
-              }).map(f => {
-                const cur = isList ? (listFields||[]) : (previewFields||[]);
-                const checked = cur.includes(f.id);
-                return (
-                  <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', cursor: 'pointer', fontSize: '12px', borderBottom: '1px solid #f0f1f3' }}>
-                    <input type="checkbox" checked={checked} onChange={() => {
-                      const next = checked ? cur.filter(x => x !== f.id) : [...cur, f.id];
-                      isList ? onListFieldsChange(next) : onPreviewFieldsChange(next);
-                    }} />
-                    <span style={{ fontWeight: 500, flex: 1 }}>{f.name}</span>
-                    <span style={{ fontSize: '10px', color: '#c1c7d0', fontFamily: 'monospace' }}>{f.id}</span>
-                  </label>
-                );
-              })}
+            <div style={{ border: '1px solid #e1e4e8', borderRadius: '5px', maxHeight: '260px', overflowY: 'auto' }}>
+              {isList ? (
+                <>
+                  {/* Header row for the 2-checkbox layout */}
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '1fr 60px 60px',
+                    padding: '6px 10px', background: '#FAFBFC',
+                    borderBottom: '1px solid #EBECF0',
+                    fontSize: 10, fontWeight: 700, color: '#6B778C',
+                    textTransform: 'uppercase', letterSpacing: '0.3px',
+                  }}>
+                    <span>Field</span>
+                    <span style={{ textAlign: 'center' }}>Column</span>
+                    <span style={{ textAlign: 'center' }}>Filter</span>
+                  </div>
+                  {allFields.filter(f => !colSearch || f.name.toLowerCase().includes(colSearch.toLowerCase())).map(f => {
+                    const colCur = listFields || [];
+                    const fltCur = filterFields || [];
+                    const colChecked = colCur.includes(f.id);
+                    const fltChecked = fltCur.includes(f.id);
+                    // Free-text fields can't have a value-picker — disable Filter
+                    const fltDisabled = FREE_TEXT_FIELD_IDS.has(f.id);
+                    return (
+                      <div key={f.id} style={{
+                        display: 'grid', gridTemplateColumns: '1fr 60px 60px',
+                        padding: '6px 10px', fontSize: 12,
+                        borderBottom: '1px solid #f0f1f3',
+                        alignItems: 'center',
+                      }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                          <span style={{ fontWeight: 500, color: '#172B4D', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          <span style={{ fontSize: 10, color: '#c1c7d0', fontFamily: 'ui-monospace, monospace' }}>{f.id}</span>
+                        </span>
+                        <label style={{ display: 'flex', justifyContent: 'center', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={colChecked}
+                            onChange={() => {
+                              const next = colChecked ? colCur.filter(x => x !== f.id) : [...colCur, f.id];
+                              onListFieldsChange(next);
+                            }}
+                            style={{ accentColor: '#0052CC', cursor: 'pointer' }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', justifyContent: 'center', cursor: fltDisabled ? 'not-allowed' : 'pointer' }} title={fltDisabled ? 'Free-text fields cannot be filter chips' : ''}>
+                          <input
+                            type="checkbox"
+                            checked={fltChecked}
+                            disabled={fltDisabled}
+                            onChange={() => {
+                              const next = fltChecked ? fltCur.filter(x => x !== f.id) : [...fltCur, f.id];
+                              onFilterFieldsChange && onFilterFieldsChange(next);
+                            }}
+                            style={{ accentColor: '#7c3aad', cursor: fltDisabled ? 'not-allowed' : 'pointer' }}
+                          />
+                        </label>
+                      </div>
+                    );
+                  })}
+                </>
+              ) : (
+                allFields.filter(f => !previewSearch || f.name.toLowerCase().includes(previewSearch.toLowerCase())).map(f => {
+                  const cur = previewFields || [];
+                  const checked = cur.includes(f.id);
+                  return (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 10px', cursor: 'pointer', fontSize: '12px', borderBottom: '1px solid #f0f1f3' }}>
+                      <input type="checkbox" checked={checked} onChange={() => {
+                        const next = checked ? cur.filter(x => x !== f.id) : [...cur, f.id];
+                        onPreviewFieldsChange(next);
+                      }} />
+                      <span style={{ fontWeight: 500, flex: 1 }}>{f.name}</span>
+                      <span style={{ fontSize: '10px', color: '#c1c7d0', fontFamily: 'monospace' }}>{f.id}</span>
+                    </label>
+                  );
+                })
+              )}
             </div>
           </div>
         </Popover>
