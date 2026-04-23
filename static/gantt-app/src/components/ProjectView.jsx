@@ -548,17 +548,8 @@ export default function ProjectView({
     setVisRange({ from, to });
   }, []);
 
-  // When the user adds a new column (extraFields grows), auto-expand the
-  // tree panel so the new column is visible at its natural width. Don't
-  // shrink — user may have deliberately narrowed the panel.
-  const prevFieldCountRef = useRef(extraFields.length);
-  useEffect(() => {
-    if (!showTimeline) return;
-    if (extraFields.length > prevFieldCountRef.current && treeContentWidth > treeWidth) {
-      setTreeWidth(Math.min(TREE_WIDTH_MAX, treeContentWidth));
-    }
-    prevFieldCountRef.current = extraFields.length;
-  }, [extraFields.length, treeContentWidth, treeWidth, showTimeline]);
+  // (Auto-expand-tree-on-new-column effect moved below, after extraFields
+  // and treeContentWidth are declared, to avoid a TDZ error.)
 
   // ── Render timeline header ───────────────────────────────────────────────
   function renderTimelineHeader() {
@@ -839,6 +830,18 @@ export default function ProjectView({
   };
   const treeContentWidth = nameColWidth + extraFields.reduce((a, f) => a + widthOf(f.id), 0);
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
+
+  // When the user adds a new column (extraFields grows), auto-expand the tree
+  // panel so the new column is visible at its natural width. Don't shrink —
+  // user may have deliberately narrowed the panel.
+  const prevFieldCountRef = useRef(extraFields.length);
+  useEffect(() => {
+    if (!showTimeline) return;
+    if (extraFields.length > prevFieldCountRef.current && treeContentWidth > treeWidth) {
+      setTreeWidth(Math.min(TREE_WIDTH_MAX, treeContentWidth));
+    }
+    prevFieldCountRef.current = extraFields.length;
+  }, [extraFields.length, treeContentWidth, treeWidth, showTimeline]);
 
   return (
     <div style={s.outer}>
