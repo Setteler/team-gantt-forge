@@ -1139,6 +1139,7 @@ export default function App() {
               listFields={listFields}
               availableFields={availableFields}
               onListFieldsChange={setListFields}
+              onUpdateIssueField={updateIssueFieldLocal}
             />
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'

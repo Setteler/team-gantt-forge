@@ -1,5 +1,26 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { router } from '@forge/bridge';
+import { router, invoke } from '@forge/bridge';
+
+// ── Inline editor helpers (shared with IssuePreview; duplicated here so the
+//    Project view can stand alone without cross-imports) ─────────────────────
+const PRIORITY_OPTIONS = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
+const READ_ONLY_FIELD_IDS = new Set(['assignee', 'reporter', 'issuetype', 'project', 'resolution', 'created', 'updated', 'key']);
+function getSchemaType(fieldId, availableFields) {
+  const f = availableFields?.find(f => f.id === fieldId);
+  return f?.schemaType || f?.schema?.type || null;
+}
+function getEditorType(fieldId, availableFields, sdf, edf) {
+  if (fieldId === 'priority') return 'priority';
+  if (fieldId === 'status')   return 'status';
+  if (fieldId === 'labels')   return 'labels';
+  if (fieldId === 'duedate' || fieldId === sdf || fieldId === edf || fieldId === 'customfield_10015') return 'date';
+  if (READ_ONLY_FIELD_IDS.has(fieldId)) return null;
+  const type = getSchemaType(fieldId, availableFields);
+  if (type === 'date' || type === 'datetime') return 'date';
+  if (type === 'string') return 'text';
+  if (type === 'number') return 'number';
+  return null;
+}
 
 const NAME_COL_DEFAULT   = 340; // initial Name-column width (user can resize)
 const NAME_COL_MIN       = 240; // Name never collapses below this
@@ -60,6 +81,7 @@ export default function ProjectView({
   onUpdateIssue, holidays,
   scrollToTarget, onVisibleMonthChange,
   listFields, availableFields, onListFieldsChange,
+  onUpdateIssueField,
 }) {
   const bodyRef       = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -74,6 +96,8 @@ export default function ProjectView({
   const [showTimeline, setShowTimeline] = useState(true);
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dropBeforeFieldId, setDropBeforeFieldId] = useState(null);
+  // Inline-edit state: which cell is currently being edited (null = none)
+  const [editingCell, setEditingCell] = useState(null); // { issueKey, fieldId, draft, loading?, transitions? } | null
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -217,6 +241,75 @@ export default function ProjectView({
     setDragFieldId(null);
     setDropBeforeFieldId(null);
   }
+
+  // ── Inline field editing ────────────────────────────────────────────────
+  async function startEditCell(iss, fieldId) {
+    const editorType = getEditorType(fieldId, availableFields, sdf, edf);
+    if (!editorType) return;
+    setSelectedKey(iss.key);
+    const fields = iss.fields || {};
+    let draft = '';
+    let transitions = null;
+    let loading = false;
+    if (editorType === 'status') {
+      loading = true;
+      setEditingCell({ issueKey: iss.key, fieldId, draft: '', loading: true });
+      transitions = await invoke('getIssueTransitions', { key: iss.key });
+      setEditingCell({ issueKey: iss.key, fieldId, draft: '', loading: false, transitions });
+      return;
+    }
+    if (editorType === 'priority') {
+      draft = fields.priority?.name || 'Medium';
+    } else if (editorType === 'labels') {
+      draft = (fields.labels || []).join(' ');
+    } else if (editorType === 'date') {
+      // For the project's configured start/end date fields, pick the right raw value.
+      const raw = fields[fieldId];
+      draft = typeof raw === 'string' ? raw.slice(0, 10) : '';
+    } else {
+      const raw = fields[fieldId];
+      draft = raw == null ? '' : String(raw);
+    }
+    setEditingCell({ issueKey: iss.key, fieldId, draft });
+  }
+
+  async function saveEdit() {
+    if (!editingCell) return;
+    const { issueKey, fieldId, draft } = editingCell;
+    const editorType = getEditorType(fieldId, availableFields, sdf, edf);
+    setEditingCell(null);
+    let value;
+    if (editorType === 'priority') {
+      value = { name: draft };
+    } else if (editorType === 'labels') {
+      value = draft.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    } else if (editorType === 'number') {
+      value = draft === '' ? null : Number(draft);
+    } else {
+      value = draft === '' ? null : draft;
+    }
+    // Optimistic local update
+    if (onUpdateIssueField) onUpdateIssueField(issueKey, fieldId, value);
+    try {
+      await invoke('updateIssueField', { key: issueKey, fieldId, value });
+    } catch (e) {
+      console.error('updateIssueField failed', e);
+    }
+  }
+
+  async function applyStatusTransition(transitionId, transitionName) {
+    if (!editingCell) return;
+    const { issueKey } = editingCell;
+    setEditingCell(null);
+    if (onUpdateIssueField) onUpdateIssueField(issueKey, 'status', { name: transitionName });
+    try {
+      await invoke('transitionIssue', { key: issueKey, transitionId });
+    } catch (e) {
+      console.error('transitionIssue failed', e);
+    }
+  }
+
+  function cancelEdit() { setEditingCell(null); }
 
   // ── Name column drag: resize just the Name column ──────────────────────
   function startNameColDrag(e) {
@@ -728,12 +821,43 @@ export default function ProjectView({
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
                     )}
                   </div>
-                  {/* Extra field cells — each fixed width, each owns its own borderBottom. */}
-                  {extraFields.map(f => (
-                    <div key={f.id} style={{ ...s.fieldCell, width: fieldColWidth, borderBottom: '1px solid #E1E4E8' }}>
-                      {renderFieldValue(iss.fields?.[f.id])}
-                    </div>
-                  ))}
+                  {/* Extra field cells — each fixed width, each owns its own borderBottom.
+                     Click a cell to edit (for editable field types). */}
+                  {extraFields.map(f => {
+                    const editorType = getEditorType(f.id, availableFields, sdf, edf);
+                    const isEditing = editingCell && editingCell.issueKey === iss.key && editingCell.fieldId === f.id;
+                    const cellBase = { ...s.fieldCell, width: fieldColWidth, borderBottom: '1px solid #E1E4E8' };
+                    if (isEditing) {
+                      return (
+                        <div
+                          key={f.id}
+                          style={{ ...cellBase, padding: 0, position: 'relative', overflow: 'visible' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <InlineCellEditor
+                            editingCell={editingCell}
+                            setEditingCell={setEditingCell}
+                            onSave={saveEdit}
+                            onCancel={cancelEdit}
+                            onApplyTransition={applyStatusTransition}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={f.id}
+                        style={{
+                          ...cellBase,
+                          cursor: editorType ? 'text' : 'default',
+                        }}
+                        onClick={editorType ? (e) => { e.stopPropagation(); startEditCell(iss, f.id); } : undefined}
+                        title={editorType ? 'Click to edit' : undefined}
+                      >
+                        {renderFieldValue(iss.fields?.[f.id])}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -892,5 +1016,117 @@ const s = {
   },
   childCount: {
     fontSize: '10px', color: '#97A0AF', fontWeight: 400, flexShrink: 0, marginRight: 4,
+  },
+};
+
+// ── Inline cell editor ────────────────────────────────────────────────────────
+// Sits INSIDE a field cell when that cell is being edited. Renders the
+// appropriate input for the field's editor type.
+function InlineCellEditor({ editingCell, setEditingCell, onSave, onCancel, onApplyTransition }) {
+  const { fieldId, draft, loading, transitions } = editingCell;
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (inputRef.current) inputRef.current.focus();
+  }, []);
+
+  // Close on outside click or Escape for the status popover; other editors
+  // handle blur via their own onBlur handlers.
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onCancel(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onCancel]);
+
+  function updateDraft(v) {
+    setEditingCell(prev => prev ? { ...prev, draft: v } : prev);
+  }
+
+  // Status: popover of transition buttons below the cell
+  if (fieldId === 'status') {
+    return (
+      <div style={editorStyles.statusPop}>
+        {loading ? (
+          <span style={{ fontSize: 11, color: '#97A0AF' }}>Loading…</span>
+        ) : transitions && transitions.length > 0 ? (
+          <>
+            {transitions.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onApplyTransition(t.id, t.to?.name || t.name)}
+                style={editorStyles.transBtn}
+              >{t.name}</button>
+            ))}
+            <button onClick={onCancel} style={editorStyles.cancelBtn}>Cancel</button>
+          </>
+        ) : (
+          <>
+            <span style={{ fontSize: 11, color: '#97A0AF' }}>No transitions available</span>
+            <button onClick={onCancel} style={editorStyles.cancelBtn}>Close</button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // Priority: inline select
+  if (fieldId === 'priority') {
+    return (
+      <select
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => updateDraft(e.target.value)}
+        onBlur={onSave}
+        onKeyDown={(e) => { if (e.key === 'Enter') onSave(); }}
+        style={editorStyles.input}
+      >
+        {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+      </select>
+    );
+  }
+
+  // Labels / text / number / date — single <input>
+  const isDate = /^\d{4}-\d{2}-\d{2}/.test(draft) || editingCell.fieldId === 'duedate' || editingCell.fieldId === 'customfield_10015';
+  const isNumber = !isDate && draft !== '' && !Number.isNaN(Number(draft)) && fieldId !== 'labels';
+  const inputType = isDate ? 'date' : (isNumber ? 'number' : 'text');
+  return (
+    <input
+      ref={inputRef}
+      type={inputType}
+      value={draft}
+      onChange={(e) => updateDraft(e.target.value)}
+      onBlur={onSave}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onSave();
+        if (e.key === 'Escape') onCancel();
+      }}
+      placeholder={fieldId === 'labels' ? 'label1 label2 …' : undefined}
+      style={editorStyles.input}
+    />
+  );
+}
+
+const editorStyles = {
+  input: {
+    width: '100%', height: '100%', boxSizing: 'border-box',
+    border: '2px solid #0073ea', borderRadius: 3,
+    padding: '0 6px', fontSize: 11, outline: 'none',
+    color: '#172B4D', background: '#fff', fontFamily: 'inherit',
+  },
+  statusPop: {
+    position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 20,
+    display: 'flex', flexWrap: 'wrap', gap: 4,
+    padding: 8, background: '#fff',
+    border: '1px solid #DFE1E6', borderRadius: 6,
+    boxShadow: '0 6px 16px rgba(9,30,66,0.16)',
+    minWidth: 180,
+  },
+  transBtn: {
+    background: '#0052CC', color: '#fff', border: 'none', borderRadius: 3,
+    padding: '3px 8px', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+  },
+  cancelBtn: {
+    background: 'none', border: '1px solid #DFE1E6', borderRadius: 3,
+    padding: '3px 8px', cursor: 'pointer', fontSize: 11, color: '#6B778C',
   },
 };
