@@ -63,6 +63,7 @@ const DEFAULT_CONFIG = {
   previewFields: ['status','priority','assignee','customfield_10015','duedate'],
   filterFields: [],     // fields that appear as chips in the filter bar
   filterValues: {},     // { fieldId: [selectedValue1, selectedValue2, ...] }
+  filterScopes: {},     // { fieldId: { types: null | string[], ancestorMode: 'keep' | 'hide' } }
   viewType: 'timeline',
   orderByField: 'duedate',
   orderByDir: 'ASC',
@@ -247,6 +248,7 @@ export default function App() {
   const [listFields, setListFields]             = useState(DEFAULT_CONFIG.listFields);
   const [filterFields, setFilterFields]         = useState(DEFAULT_CONFIG.filterFields);
   const [filterValues, setFilterValues]         = useState(DEFAULT_CONFIG.filterValues);
+  const [filterScopes, setFilterScopes]         = useState(DEFAULT_CONFIG.filterScopes);
   const [previewFields, setPreviewFields]       = useState(DEFAULT_CONFIG.previewFields);
   const [viewType, setViewType]                 = useState(DEFAULT_CONFIG.viewType);
   const [orderByField, setOrderByField]         = useState(DEFAULT_CONFIG.orderByField);
@@ -337,6 +339,7 @@ export default function App() {
     setListFields(view.listFields || DEFAULT_CONFIG.listFields);
     setFilterFields(view.filterFields || DEFAULT_CONFIG.filterFields);
     setFilterValues(view.filterValues || DEFAULT_CONFIG.filterValues);
+    setFilterScopes(view.filterScopes || DEFAULT_CONFIG.filterScopes);
     setPreviewFields(view.previewFields || DEFAULT_CONFIG.previewFields);
     setViewType(view.viewType || 'timeline');
     setOrderByField(view.orderByField || 'duedate');
@@ -360,6 +363,7 @@ export default function App() {
     JSON.stringify(previewFields) !== JSON.stringify(activeView.previewFields || DEFAULT_CONFIG.previewFields) ||
     JSON.stringify(filterFields) !== JSON.stringify(activeView.filterFields || DEFAULT_CONFIG.filterFields) ||
     JSON.stringify(filterValues) !== JSON.stringify(activeView.filterValues || DEFAULT_CONFIG.filterValues) ||
+    JSON.stringify(filterScopes) !== JSON.stringify(activeView.filterScopes || DEFAULT_CONFIG.filterScopes) ||
     viewType       !== (activeView.viewType       || 'timeline') ||
     orderByField   !== (activeView.orderByField   || 'duedate') ||
     orderByDir     !== (activeView.orderByDir     || 'ASC') ||
@@ -548,7 +552,7 @@ export default function App() {
       ...view,
       selectedProjects, statusFilter, jqlFilter,
       groupByFields, startDateField, endDateField,
-      listFields, previewFields, filterFields, filterValues,
+      listFields, previewFields, filterFields, filterValues, filterScopes,
       viewType, orderByField, orderByDir, eventsOnly,
     };
     await invoke('saveView', { view: updated });
@@ -891,20 +895,81 @@ export default function App() {
 
   const monthLabel = `${MONTH_NAMES[visMonth]} ${visYear}`;
 
-  // Apply filter-chip selections to the visible issue set. An issue passes a
-  // field's filter if any of its values for that field is in the chosen set.
-  // No values chosen for a field = no filter on that field.
+  // Apply filter-chip selections with per-chip scope (issue types) and
+  // ancestor mode. Each filter has a "pass set":
+  //   • issues whose type is NOT in scope.types  →  auto-pass
+  //   • issues whose type IS in scope.types and match values  →  pass
+  //   • issues whose type IS in scope.types but miss values   →  fail
+  //   • if ancestorMode='keep': add ancestors of direct matches to pass set
+  // Final visible set = intersection of every filter's pass set.
   const filteredIssues = React.useMemo(() => {
     const activeFilters = Object.entries(filterValues || {}).filter(([, vals]) => Array.isArray(vals) && vals.length > 0);
     if (activeFilters.length === 0) return issues;
-    return issues.filter(iss => {
-      for (const [fid, selected] of activeFilters) {
-        const values = getFieldValuesForFilter(iss.fields, fid);
-        if (!values.some(v => selected.includes(v))) return false;
+
+    // Build parent map: key → parentKey (if present in the loaded set)
+    const issueByKey = {};
+    for (const iss of issues) issueByKey[iss.key] = iss;
+    function parentKeyOf(iss) {
+      if (!iss) return null;
+      const p = iss.fields?.parent;
+      if (p?.key && issueByKey[p.key]) return p.key;
+      const epicLink = iss.fields?.customfield_10014;
+      if (typeof epicLink === 'string' && issueByKey[epicLink]) return epicLink;
+      return null;
+    }
+    // Compute ancestors lazily with memo and cycle guard
+    const ancestorCache = {};
+    function ancestorsOf(key) {
+      if (ancestorCache[key]) return ancestorCache[key];
+      const seen = new Set();
+      const out = [];
+      let cur = parentKeyOf(issueByKey[key]);
+      while (cur && !seen.has(cur)) {
+        seen.add(cur); out.push(cur);
+        cur = parentKeyOf(issueByKey[cur]);
       }
-      return true;
+      ancestorCache[key] = out;
+      return out;
+    }
+
+    // Pass set per filter
+    const passSets = activeFilters.map(([fid, selected]) => {
+      const scope = (filterScopes || {})[fid] || {};
+      const types = Array.isArray(scope.types) ? scope.types : null; // null = all types in scope
+      const ancestorMode = scope.ancestorMode || 'keep';
+      const allowed = new Set();
+      const directMatches = [];
+      for (const iss of issues) {
+        const issueType = iss.fields?.issuetype?.name;
+        const inScope = !types || types.length === 0 || types.includes(issueType);
+        if (!inScope) { allowed.add(iss.key); continue; }
+        const values = getFieldValuesForFilter(iss.fields, fid);
+        if (values.some(v => selected.includes(v))) {
+          allowed.add(iss.key);
+          directMatches.push(iss.key);
+        }
+      }
+      if (ancestorMode === 'keep') {
+        for (const k of directMatches) {
+          for (const a of ancestorsOf(k)) allowed.add(a);
+        }
+      }
+      return allowed;
     });
-  }, [issues, filterValues]);
+
+    return issues.filter(iss => passSets.every(s => s.has(iss.key)));
+  }, [issues, filterValues, filterScopes]);
+
+  // All issue types present in the loaded issues — used to populate the
+  // "Apply to" checkbox list in each filter chip's scope picker.
+  const availableIssueTypes = React.useMemo(() => {
+    const s = new Set();
+    for (const iss of issues) {
+      const t = iss.fields?.issuetype?.name;
+      if (t) s.add(t);
+    }
+    return Array.from(s).sort();
+  }, [issues]);
 
   return (
     <div style={styles.root}>
@@ -980,8 +1045,11 @@ export default function App() {
           filterFields={filterFields}
           filterValues={filterValues}
           onFilterValuesChange={setFilterValues}
+          filterScopes={filterScopes}
+          onFilterScopesChange={setFilterScopes}
           issues={issues}
           availableFields={availableFields}
+          availableIssueTypes={availableIssueTypes}
         />
       )}
 

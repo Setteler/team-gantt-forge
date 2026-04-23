@@ -14,12 +14,29 @@ function getFieldValuesForFilter(fields, key) {
   return [v.displayName || v.name || v.value || v.key].filter(Boolean);
 }
 
+// Default scope: filter applies to every issue type, ancestors of matches
+// stay visible (so filtering by a Story-level field keeps Epics in view).
+function defaultScope() {
+  return { types: null, ancestorMode: 'keep' };
+}
+
+// Is the scope non-default? (shown as a dot on the chip)
+function isScopeCustomized(scope) {
+  if (!scope) return false;
+  if (Array.isArray(scope.types) && scope.types.length > 0) return true;
+  if (scope.ancestorMode && scope.ancestorMode !== 'keep') return true;
+  return false;
+}
+
 export default function FilterBar({
   filterFields,           // fieldIds that are active as chips
   filterValues,           // { fieldId: [selectedValue, ...] }
-  onFilterValuesChange,   // (nextValues) => void
+  onFilterValuesChange,
+  filterScopes,           // { fieldId: { types, ancestorMode } }
+  onFilterScopesChange,
   issues,                 // current loaded issues (unfiltered) for value aggregation
   availableFields,
+  availableIssueTypes,    // issue types present in the loaded set
 }) {
   if (!filterFields || filterFields.length === 0) return null;
 
@@ -32,12 +49,21 @@ export default function FilterBar({
           fieldId={fid}
           fieldName={(availableFields || []).find(f => f.id === fid)?.name || fid}
           selected={filterValues?.[fid] || []}
+          scope={(filterScopes || {})[fid] || defaultScope()}
           issues={issues}
-          onChange={(nextSelected) => {
+          availableIssueTypes={availableIssueTypes || []}
+          onValuesChange={(nextSelected) => {
             const next = { ...(filterValues || {}) };
             if (nextSelected.length === 0) delete next[fid];
             else next[fid] = nextSelected;
             onFilterValuesChange(next);
+          }}
+          onScopeChange={(nextScope) => {
+            const next = { ...(filterScopes || {}) };
+            // Store scope only when it differs from default, keeps saved views small
+            if (isScopeCustomized(nextScope)) next[fid] = nextScope;
+            else delete next[fid];
+            onFilterScopesChange(next);
           }}
         />
       ))}
@@ -45,14 +71,13 @@ export default function FilterBar({
   );
 }
 
-function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
+function FilterChip({ fieldId, fieldName, selected, scope, issues, availableIssueTypes, onValuesChange, onScopeChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const btnRef = useRef(null);
   const popRef = useRef(null);
 
-  // Aggregate all distinct values for this field across the loaded issues.
-  // This is the value picker — no extra API call, just what's in memory.
+  // Aggregate distinct values from loaded issues (no extra API call).
   const options = useMemo(() => {
     const counts = new Map();
     for (const iss of issues || []) {
@@ -65,7 +90,6 @@ function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
       .map(([value, count]) => ({ value, count }));
   }, [issues, fieldId]);
 
-  // Close on outside click / Escape
   useEffect(() => {
     if (!open) return;
     function onDown(e) {
@@ -88,14 +112,26 @@ function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
 
   function toggleValue(v) {
     const next = selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v];
-    onChange(next);
+    onValuesChange(next);
   }
 
   function clearAll(e) {
-    e.stopPropagation();
-    onChange([]);
+    if (e) e.stopPropagation();
+    onValuesChange([]);
   }
 
+  function toggleType(t) {
+    const cur = Array.isArray(scope.types) ? scope.types : [];
+    const next = cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t];
+    // If user clears all checkboxes, treat as null = all types
+    onScopeChange({ ...scope, types: next.length === 0 ? null : next });
+  }
+
+  function setAncestorMode(mode) {
+    onScopeChange({ ...scope, ancestorMode: mode });
+  }
+
+  const scopeCustom = isScopeCustomized(scope);
   const chipStyle = hasValue ? { ...styles.chip, ...styles.chipActive } : styles.chip;
 
   return (
@@ -111,6 +147,9 @@ function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
             {selected.length <= 2 ? selected.join(', ') : `${selected.length} selected`}
           </span>
         )}
+        {scopeCustom && (
+          <span style={styles.scopeDot} title="Scope is customized" />
+        )}
         {hasValue ? (
           <span style={styles.chipX} onClick={clearAll} title="Clear filter">×</span>
         ) : (
@@ -122,10 +161,11 @@ function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
         <div ref={popRef} style={styles.pop}>
           <div style={styles.popH}>
             <span style={styles.popT}>{fieldName}</span>
-            {hasValue && (
-              <button style={styles.clearBtn} onClick={clearAll}>Clear</button>
-            )}
+            {hasValue && <button style={styles.clearBtn} onClick={clearAll}>Clear</button>}
           </div>
+
+          {/* Values */}
+          <div style={styles.sectionTitle}>Values</div>
           <input
             autoFocus
             value={search}
@@ -150,6 +190,78 @@ function FilterChip({ fieldId, fieldName, selected, issues, onChange }) {
                 </label>
               ))
             )}
+          </div>
+
+          {/* Apply to — issue types in scope */}
+          {availableIssueTypes.length > 0 && (
+            <>
+              <div style={styles.divider} />
+              <div style={styles.sectionTitle}>
+                Apply to <span style={styles.hint}>— issue types</span>
+              </div>
+              <div style={styles.scopeBlock}>
+                {availableIssueTypes.map(t => {
+                  const all = !Array.isArray(scope.types) || scope.types.length === 0;
+                  const checked = all || scope.types.includes(t);
+                  return (
+                    <label key={t} style={styles.scopeRow}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          // If "all" was implicit, switching means we materialize the list
+                          if (all) {
+                            const without = availableIssueTypes.filter(x => x !== t);
+                            onScopeChange({ ...scope, types: without });
+                          } else {
+                            toggleType(t);
+                          }
+                        }}
+                        style={{ accentColor: '#0052CC', cursor: 'pointer' }}
+                      />
+                      <span style={styles.typeTag}>{t}</span>
+                    </label>
+                  );
+                })}
+                <div style={styles.scopeHint}>
+                  {!Array.isArray(scope.types) || scope.types.length === 0
+                    ? 'Filter applies to every issue type.'
+                    : `Filter applies only to: ${scope.types.join(', ')}. Other types pass through.`}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Ancestors behavior */}
+          <div style={styles.divider} />
+          <div style={styles.sectionTitle}>Ancestors</div>
+          <div style={styles.radioBlock}>
+            <label style={{ ...styles.radioRow, ...(scope.ancestorMode !== 'hide' ? styles.radioRowActive : {}) }}>
+              <input
+                type="radio"
+                name={`anc-${fieldId}`}
+                checked={scope.ancestorMode !== 'hide'}
+                onChange={() => setAncestorMode('keep')}
+                style={{ accentColor: '#0052CC', marginTop: 2, cursor: 'pointer' }}
+              />
+              <span>
+                <span style={styles.radioT}>Keep visible</span>
+                <div style={styles.radioD}>Parents of matched rows stay visible even if they don't match.</div>
+              </span>
+            </label>
+            <label style={{ ...styles.radioRow, ...(scope.ancestorMode === 'hide' ? styles.radioRowActive : {}) }}>
+              <input
+                type="radio"
+                name={`anc-${fieldId}`}
+                checked={scope.ancestorMode === 'hide'}
+                onChange={() => setAncestorMode('hide')}
+                style={{ accentColor: '#0052CC', marginTop: 2, cursor: 'pointer' }}
+              />
+              <span>
+                <span style={styles.radioT}>Hide if unmatched</span>
+                <div style={styles.radioD}>Only show rows that directly match the filter.</div>
+              </span>
+            </label>
           </div>
         </div>
       )}
@@ -179,10 +291,14 @@ const styles = {
   chipKey: { fontWeight: 500 },
   chipVals: { fontWeight: 600 },
   chipX: { color: '#97A0AF', fontSize: 14, lineHeight: 1, padding: '0 1px' },
+  scopeDot: {
+    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+    background: '#00875A', marginLeft: 2,
+  },
 
   pop: {
     position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 500,
-    width: 280, background: '#fff',
+    width: 320, background: '#fff',
     border: '1px solid #DFE1E6', borderRadius: 8,
     boxShadow: '0 8px 24px rgba(9,30,66,0.16)',
     overflow: 'hidden',
@@ -196,13 +312,23 @@ const styles = {
     background: 'none', border: 'none', color: '#0052CC', fontSize: 11,
     fontWeight: 600, cursor: 'pointer', padding: 0,
   },
+
+  sectionTitle: {
+    fontSize: 10, fontWeight: 700, color: '#6B778C',
+    textTransform: 'uppercase', letterSpacing: '0.4px',
+    padding: '10px 12px 4px',
+  },
+  hint: {
+    fontWeight: 400, color: '#97A0AF', textTransform: 'none', letterSpacing: 0,
+  },
+
   search: {
-    width: 'calc(100% - 20px)', margin: '8px 10px 6px',
+    width: 'calc(100% - 20px)', margin: '0 10px 6px',
     border: '1px solid #DFE1E6', borderRadius: 5,
     padding: '6px 10px', fontSize: 12, outline: 'none', boxSizing: 'border-box',
     fontFamily: 'inherit',
   },
-  list: { maxHeight: 280, overflowY: 'auto' },
+  list: { maxHeight: 220, overflowY: 'auto' },
   row: {
     display: 'flex', alignItems: 'center', gap: 8,
     padding: '6px 12px', cursor: 'pointer', fontSize: 12,
@@ -210,4 +336,32 @@ const styles = {
   rowText: { flex: 1, color: '#172B4D', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   rowCount: { color: '#97A0AF', fontSize: 11 },
   empty: { padding: '12px', color: '#97A0AF', fontSize: 12, textAlign: 'center' },
+
+  divider: { height: 1, background: '#EBECF0', margin: '6px 0 0' },
+
+  scopeBlock: { padding: '0 12px 8px' },
+  scopeRow: {
+    display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer', fontSize: 12,
+  },
+  scopeHint: {
+    fontSize: 11, color: '#97A0AF', fontStyle: 'italic',
+    marginTop: 4, lineHeight: 1.4,
+  },
+  typeTag: {
+    display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '1px 6px',
+    borderRadius: 3, background: '#EAE6FF', color: '#5243AA', textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+
+  radioBlock: { padding: '4px 8px 10px', display: 'flex', flexDirection: 'column', gap: 4 },
+  radioRow: {
+    display: 'flex', alignItems: 'flex-start', gap: 8,
+    padding: '6px 8px', fontSize: 12, cursor: 'pointer',
+    border: '1px solid transparent', borderRadius: 5,
+  },
+  radioRowActive: {
+    background: '#DEEBFF', borderColor: '#B3D4FF',
+  },
+  radioT: { fontWeight: 600, color: '#172B4D' },
+  radioD: { color: '#6B778C', fontSize: 11, marginTop: 2, lineHeight: 1.4 },
 };
