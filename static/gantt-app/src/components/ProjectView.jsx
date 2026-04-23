@@ -487,12 +487,21 @@ export default function ProjectView({
 
   // ── Per-field column drag ──────────────────────────────────────────────
   function startFieldColDrag(e, fieldId) {
-    if (collapsedCols.has(fieldId)) return; // can't resize a collapsed column
+    // Dragging a collapsed column's edge expands it back — clear the
+    // user-collapsed state and let the override drive the width.
+    const wasUserCollapsed = collapsedCols.has(fieldId);
+    if (wasUserCollapsed) {
+      setCollapsedCols(prev => {
+        const next = new Set(prev);
+        next.delete(fieldId);
+        return next;
+      });
+    }
     const startW = widthOf(fieldId);
     runColumnResizeDrag(e, d => d, d => {
       setColWidthOverrides(prev => ({
         ...prev,
-        [fieldId]: Math.max(FIELD_COL_MIN, startW + d),
+        [fieldId]: Math.max(COLLAPSED_COL_WIDTH, startW + d),
       }));
     });
   }
@@ -837,31 +846,45 @@ export default function ProjectView({
   }, [listFields, availableFields]);
 
   // Column widths. Each column has a desired width (user-collapsed → 28,
-  // user override → that value, else natural 140). If the sum exceeds the
-  // tree-panel width, auto-collapse the rightmost columns to vertical
-  // slivers so they stay visible (stacked on the right) instead of being
-  // clipped — similar to Jira Advanced Roadmaps.
+  // user override → that value, else natural 140). If the total exceeds
+  // the tree panel, shrink every shrinkable column proportionally to fit,
+  // with a hard minimum of COLLAPSED_COL_WIDTH so the name always has
+  // room to render (horizontal above VERTICAL_TEXT_THRESHOLD, vertical
+  // below). Gradual scaling means names never vanish mid-drag.
   const COLLAPSED_COL_WIDTH = 28;
   const nameColWidth = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
   const { widthByFieldId, autoCollapsed, treeContentWidth } = (() => {
     const desired = {};
     for (const f of extraFields) {
       if (collapsedCols.has(f.id))       desired[f.id] = COLLAPSED_COL_WIDTH;
-      else if (colWidthOverrides[f.id])  desired[f.id] = colWidthOverrides[f.id];
+      else if (colWidthOverrides[f.id])  desired[f.id] = Math.max(COLLAPSED_COL_WIDTH, colWidthOverrides[f.id]);
       else                                desired[f.id] = FIELD_COL_NATURAL;
     }
     const final = { ...desired };
     const autoSet = new Set();
     if (showTimeline) {
       const available = Math.max(0, treeWidth - nameColWidth);
-      let sum = extraFields.reduce((a, f) => a + final[f.id], 0);
-      // Collapse from the rightmost un-collapsed column until we fit
-      for (let i = extraFields.length - 1; i >= 0 && sum > available; i--) {
-        const fid = extraFields[i].id;
-        if (final[fid] > COLLAPSED_COL_WIDTH) {
-          sum -= (final[fid] - COLLAPSED_COL_WIDTH);
-          final[fid] = COLLAPSED_COL_WIDTH;
-          if (!collapsedCols.has(fid)) autoSet.add(fid);
+      const desiredSum = extraFields.reduce((a, f) => a + desired[f.id], 0);
+      if (desiredSum > available) {
+        // Scale all columns proportionally, but never below COLLAPSED_COL_WIDTH.
+        const scale = available / desiredSum;
+        for (const f of extraFields) {
+          const scaled = Math.max(COLLAPSED_COL_WIDTH, Math.floor(desired[f.id] * scale));
+          final[f.id] = scaled;
+        }
+        // If minimums push the total over `available`, further reduce from the
+        // right (drop non-minimal widths to COLLAPSED_COL_WIDTH one by one).
+        let sum = extraFields.reduce((a, f) => a + final[f.id], 0);
+        for (let i = extraFields.length - 1; i >= 0 && sum > available; i--) {
+          const fid = extraFields[i].id;
+          if (final[fid] > COLLAPSED_COL_WIDTH) {
+            sum -= (final[fid] - COLLAPSED_COL_WIDTH);
+            final[fid] = COLLAPSED_COL_WIDTH;
+          }
+        }
+        // Mark anything that ended up below the vertical-text threshold
+        for (const f of extraFields) {
+          if (!collapsedCols.has(f.id) && final[f.id] < 60) autoSet.add(f.id);
         }
       }
     }
@@ -983,10 +1006,16 @@ export default function ProjectView({
                 {isCollapsedCol ? (
                   <span style={{
                     writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-                    whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    // Shrink font once the column itself is very narrow so
+                    // long names still fit vertically inside the header.
+                    fontSize: w < 24 ? 8 : 9,
+                    fontWeight: 700,
                     color: isSorted ? '#0052CC' : '#6B778C',
-                    textTransform: 'uppercase', letterSpacing: 0.3,
-                    padding: '8px 0',
+                    textTransform: 'uppercase', letterSpacing: 0.2,
+                    padding: 0, margin: 0,
+                    maxHeight: '100%', overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}>
                     {f.name} {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
                   </span>
@@ -1002,21 +1031,20 @@ export default function ProjectView({
                     </span>
                   </span>
                 )}
-                {/* Right-edge resize handle (not on collapsed columns) */}
-                {!isCollapsedCol && (
-                  <div
-                    onMouseDown={(e) => startFieldColDrag(e, f.id)}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
-                      cursor: 'col-resize', zIndex: 13,
-                      background: 'transparent', transition: 'background 0.12s',
-                    }}
-                    title="Drag to resize column"
-                  />
-                )}
+                {/* Right-edge resize handle — always available so a collapsed
+                    column can be dragged back open. */}
+                <div
+                  onMouseDown={(e) => startFieldColDrag(e, f.id)}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
+                    cursor: 'col-resize', zIndex: 13,
+                    background: 'transparent', transition: 'background 0.12s',
+                  }}
+                  title="Drag to resize column"
+                />
               </div>
             );
           })}
