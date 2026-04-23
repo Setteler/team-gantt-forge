@@ -47,7 +47,7 @@ const NAME_COL_MIN       = 240; // Name never collapses below this
 const NAME_COL_MAX       = 800;
 const FIELD_COL_NATURAL  = 140; // preferred width per extra field
 const FIELD_COL_MIN      = 28;  // collapsed field — only a sliver visible (like Jira Advanced Roadmaps)
-const TREE_WIDTH_DEFAULT = 600;
+const TREE_WIDTH_DEFAULT = 760; // Name (340) + 3 × field (140) at natural size
 const TREE_WIDTH_MIN     = 260;
 const TREE_WIDTH_MAX     = 1600;
 const DAY_WIDTH     = 38;
@@ -548,6 +548,18 @@ export default function ProjectView({
     setVisRange({ from, to });
   }, []);
 
+  // When the user adds a new column (extraFields grows), auto-expand the
+  // tree panel so the new column is visible at its natural width. Don't
+  // shrink — user may have deliberately narrowed the panel.
+  const prevFieldCountRef = useRef(extraFields.length);
+  useEffect(() => {
+    if (!showTimeline) return;
+    if (extraFields.length > prevFieldCountRef.current && treeContentWidth > treeWidth) {
+      setTreeWidth(Math.min(TREE_WIDTH_MAX, treeContentWidth));
+    }
+    prevFieldCountRef.current = extraFields.length;
+  }, [extraFields.length, treeContentWidth, treeWidth, showTimeline]);
+
   // ── Render timeline header ───────────────────────────────────────────────
   function renderTimelineHeader() {
     // Month spans (top row)
@@ -813,34 +825,19 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // Per-column width. Priority per column:
-  //   collapsed? → COLLAPSED_COL_WIDTH (28)
-  //   user-set override? → that value
-  //   otherwise → computed "normalW" (shared with peer non-collapsed cols)
+  // Column widths — each column keeps its natural or user-set width regardless
+  // of treeWidth. If the sum of columns exceeds treeWidth, the tree panel
+  // simply clips content at its right edge; drag the tree/timeline divider
+  // wider to see more. (Use the per-column "Collapse" toggle to get the
+  // sliver-with-vertical-text behavior intentionally.)
   const COLLAPSED_COL_WIDTH = 28;
-  const { nameColWidth, widthOf, treeContentWidth } = (() => {
-    const desiredName = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
-    const normalFields = extraFields.filter(f => !collapsedCols.has(f.id));
-    const overriddenFields = normalFields.filter(f => colWidthOverrides[f.id]);
-    const autoFields = normalFields.filter(f => !colWidthOverrides[f.id]);
-    const collapsedTotal = (extraFields.length - normalFields.length) * COLLAPSED_COL_WIDTH;
-    const overrideTotal = overriddenFields.reduce((a, f) => a + colWidthOverrides[f.id], 0);
-    const autoNatural = autoFields.length * FIELD_COL_NATURAL;
-    const natural = desiredName + collapsedTotal + overrideTotal + autoNatural;
-    const makeResolver = (normalW) => (fid) => {
-      if (collapsedCols.has(fid)) return COLLAPSED_COL_WIDTH;
-      if (colWidthOverrides[fid]) return colWidthOverrides[fid];
-      return normalW;
-    };
-    if (!showTimeline || treeWidth >= natural) {
-      return { nameColWidth: desiredName, widthOf: makeResolver(FIELD_COL_NATURAL), treeContentWidth: natural };
-    }
-    // Tight: shrink only the "auto" (un-overridden) columns.
-    const availableForAuto = Math.max(0, treeWidth - desiredName - collapsedTotal - overrideTotal);
-    const autoW = autoFields.length > 0 ? Math.max(FIELD_COL_MIN, availableForAuto / autoFields.length) : 0;
-    const total = desiredName + collapsedTotal + overrideTotal + autoFields.length * autoW;
-    return { nameColWidth: desiredName, widthOf: makeResolver(autoW), treeContentWidth: total };
-  })();
+  const nameColWidth = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
+  const widthOf = (fid) => {
+    if (collapsedCols.has(fid)) return COLLAPSED_COL_WIDTH;
+    if (colWidthOverrides[fid]) return colWidthOverrides[fid];
+    return FIELD_COL_NATURAL;
+  };
+  const treeContentWidth = nameColWidth + extraFields.reduce((a, f) => a + widthOf(f.id), 0);
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
   return (
