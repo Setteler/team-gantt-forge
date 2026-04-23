@@ -4,7 +4,7 @@ import JqlInput from './JqlInput';
 const VIEW_TYPE_META = {
   timeline: { label: 'Gantt',   color: '#0073ea', dot: '#0073ea' },
   list:     { label: 'List',    color: '#00854d', dot: '#00854d' },
-  project:  { label: 'Project', color: '#00B8D9', dot: '#00B8D9' },
+  project:  { label: 'Project', color: '#6554C0', dot: '#6554C0' },
 };
 
 // Fallback for legacy view types (tree, roadmap) that may exist in saved data

@@ -153,18 +153,18 @@ export default function ConfigPanel({
           <div style={styles.sectionTitle}>View type</div>
           <div style={{ display: 'flex', gap: '6px' }}>
             {[
-              { value: 'timeline', label: '▤ Gantt' },
-              { value: 'list',     label: '≡ List' },
-              { value: 'project',  label: '▥ Project' },
+              { value: 'timeline', label: '▤ Gantt',   color: '#0073ea' },
+              { value: 'list',     label: '≡ List',    color: '#00854d' },
+              { value: 'project',  label: '▥ Project', color: '#6554C0' },
             ].map(opt => (
               <button
                 key={opt.value}
                 style={{
                   flex: 1, border: '1px solid', borderRadius: '4px', padding: '6px 8px',
                   cursor: 'pointer', fontSize: '12px', fontWeight: 600,
-                  background: viewType === opt.value ? '#0052CC' : '#fff',
+                  background: viewType === opt.value ? opt.color : '#fff',
                   color: viewType === opt.value ? '#fff' : '#6B778C',
-                  borderColor: viewType === opt.value ? '#0052CC' : '#DFE1E6',
+                  borderColor: viewType === opt.value ? opt.color : '#DFE1E6',
                 }}
                 onClick={() => onViewTypeChange(opt.value)}
               >{opt.label}</button>

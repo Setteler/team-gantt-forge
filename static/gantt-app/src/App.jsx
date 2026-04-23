@@ -666,7 +666,7 @@ export default function App() {
           <span style={styles.viewName}>
             <span style={{
               width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-              background: viewType === 'list' ? '#00854d' : viewType === 'project' ? '#00B8D9' : '#0073ea',
+              background: viewType === 'list' ? '#00854d' : viewType === 'project' ? '#6554C0' : '#0073ea',
             }} />
             {activeView.name}
             {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
