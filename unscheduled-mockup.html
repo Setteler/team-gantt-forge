@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unscheduled Issues — Approach Comparison</title>
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --blue:    #0052CC;
+    --blue-lt: #DEEBFF;
+    --ink:     #172B4D;
+    --ink-mid: #42526E;
+    --ink-muted: #97A0AF;
+    --bg:      #F7F8F9;
+    --white:   #FFFFFF;
+    --line:    #DFE1E6;
+    --green:   #00c875;
+    --amber:   #fdab3d;
+    --amber-lt:#fff8e7;
+    --amber-tint: #FFF3E0;
+    --red:     #FF5630;
+    --purple:  #6554C0;
+    --teal:    #00B8D9;
+    --panel-w: 260px;
+    --row-h:   38px;
+    --header-h: 36px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #EBECF0;
+    color: var(--ink);
+    padding: 40px 32px 60px;
+    min-width: 900px;
+  }
+
+  /* ── Page Header ── */
+  .page-header {
+    margin-bottom: 40px;
+  }
+  .page-header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.3px;
+  }
+  .page-header p {
+    font-size: 13px;
+    color: var(--ink-mid);
+    margin-top: 6px;
+  }
+
+  /* ── Option Block ── */
+  .option-block {
+    background: var(--white);
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    margin-bottom: 40px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(23,43,77,0.08);
+  }
+
+  .option-header {
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--white);
+  }
+  .option-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .option-badge {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    background: var(--blue);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .option-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .option-meta {
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    line-height: 1.6;
+    max-width: 680px;
+    margin-top: 4px;
+  }
+  .option-meta strong {
+    color: var(--ink-mid);
+    font-weight: 600;
+  }
+
+  /* ── Gantt Shell ── */
+  .gantt-shell {
+    display: flex;
+    flex-direction: column;
+    border-top: none;
+  }
+
+  /* Timeline header */
+  .gantt-thead {
+    display: flex;
+    height: var(--header-h);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .gantt-thead-left {
+    width: var(--panel-w);
+    min-width: var(--panel-w);
+    border-right: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--ink-muted);
+  }
+  .gantt-thead-right {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+  }
+  .gantt-month {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-mid);
+    border-right: 1px solid var(--line);
+  }
+  .gantt-month:last-child { border-right: none; }
+
+  /* Day ticks sub-row */
+  .gantt-days-row {
+    display: flex;
+    height: 22px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .gantt-days-left {
+    width: var(--panel-w);
+    min-width: var(--panel-w);
+    border-right: 1px solid var(--line);
+  }
+  .gantt-days-right {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    position: relative;
+  }
+  .day-tick {
+    flex: 1;
+    text-align: center;
+    font-size: 10px;
+    color: var(--ink-muted);
+    border-right: 1px solid #EBECF0;
+    line-height: 22px;
+  }
+  .day-tick.today-tick {
+    color: var(--amber);
+    font-weight: 700;
+  }
+
+  /* Rows */
+  .gantt-row {
+    display: flex;
+    height: var(--row-h);
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .gantt-row:last-child { border-bottom: none; }
+
+  .gantt-left {
+    width: var(--panel-w);
+    min-width: var(--panel-w);
+    border-right: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    padding: 0 10px 0 12px;
+    font-size: 12.5px;
+    gap: 7px;
+    overflow: hidden;
+  }
+
+  .gantt-right {
+    flex: 1;
+    position: relative;
+    background: var(--white);
+    overflow: hidden;
+  }
+
+  /* Group header row */
+  .gantt-row.group {
+    background: var(--bg);
+    height: 30px;
+  }
+  .gantt-row.group .gantt-left {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--ink-mid);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .gantt-row.group .gantt-right {
+    background: var(--bg);
+  }
+
+  .group-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--line);
+    color: var(--ink-mid);
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    min-width: 20px;
+  }
+
+  .chevron {
+    color: var(--ink-muted);
+    font-size: 10px;
+    margin-right: 2px;
+  }
+
+  /* Issue key label */
+  .issue-key {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--blue);
+    white-space: nowrap;
+  }
+  .issue-summary {
+    font-size: 12px;
+    color: var(--ink-mid);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Gantt bars */
+  .gantt-bar {
+    position: absolute;
+    top: 7px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+    user-select: none;
+  }
+
+  /* Vertical grid lines */
+  .v-grid-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #EBECF0;
+    pointer-events: none;
+  }
+
+  /* Today line */
+  .today-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--amber);
+    opacity: 0.9;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .today-line::before {
+    content: "Today";
+    position: absolute;
+    top: -18px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--amber);
+    white-space: nowrap;
+  }
+
+  /* ════════════════════════════
+     OPTION A — Unscheduled Tray
+  ════════════════════════════ */
+
+  .gantt-row.unscheduled-group {
+    background: #FFF8EE;
+    height: 30px;
+    border-top: 2px solid var(--amber);
+  }
+  .gantt-row.unscheduled-group .gantt-left {
+    font-size: 12px;
+    font-weight: 700;
+    color: #B76E00;
+  }
+  .gantt-row.unscheduled-group .gantt-right {
+    background: #FFF8EE;
+  }
+
+  .gantt-row.unscheduled-issue {
+    height: 44px;
+    background: #FFFCF5;
+  }
+  .gantt-row.unscheduled-issue .gantt-left {
+    align-items: center;
+  }
+  .gantt-row.unscheduled-issue .gantt-right {
+    background: repeating-linear-gradient(
+      -45deg,
+      #F7F8F9,
+      #F7F8F9 6px,
+      #FFFFFF 6px,
+      #FFFFFF 12px
+    );
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+  }
+
+  .unscheduled-hint {
+    font-size: 11px;
+    color: var(--ink-muted);
+    font-style: italic;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .unscheduled-hint-arrow {
+    font-style: normal;
+    font-size: 12px;
+  }
+
+  .issue-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1.5px dashed var(--amber);
+    border-radius: 20px;
+    padding: 3px 10px 3px 8px;
+    background: var(--amber-tint);
+    font-size: 11px;
+    white-space: nowrap;
+    cursor: grab;
+  }
+  .issue-chip-key {
+    font-weight: 700;
+    color: #B76E00;
+  }
+  .issue-chip-summary {
+    color: var(--ink-mid);
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chips-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0 2px;
+    scrollbar-width: none;
+  }
+
+  /* ════════════════════════════
+     OPTION B — Ghost Bars
+  ════════════════════════════ */
+
+  .gantt-bar.ghost {
+    background: var(--amber-lt) !important;
+    border: 1.5px dashed var(--amber);
+    opacity: 0.85;
+    color: var(--ink-muted);
+    font-weight: 500;
+    position: absolute;
+  }
+
+  .ghost-tooltip {
+    position: absolute;
+    top: -22px;
+    left: 0;
+    background: var(--ink);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 20;
+    opacity: 0.92;
+  }
+  .ghost-tooltip::after {
+    content: "";
+    position: absolute;
+    bottom: -5px;
+    left: 12px;
+    border: 3px solid transparent;
+    border-top-color: var(--ink);
+  }
+
+  /* ════════════════════════════
+     OPTION C — Sidebar Panel
+  ════════════════════════════ */
+
+  .option-c-layout {
+    display: flex;
+    height: 300px;
+    border-top: 1px solid var(--line);
+  }
+
+  .sidebar-panel {
+    width: 220px;
+    min-width: 220px;
+    border-right: 1px solid var(--line);
+    background: var(--white);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .sidebar-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 8px;
+    cursor: pointer;
+  }
+  .sidebar-section-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--ink-muted);
+  }
+  .sidebar-section-chevron {
+    font-size: 10px;
+    color: var(--ink-muted);
+  }
+
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    padding: 7px 12px;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--ink-mid);
+    transition: background 0.1s;
+    border-radius: 4px;
+    margin: 0 4px;
+  }
+  .sidebar-item:hover {
+    background: var(--bg);
+  }
+  .sidebar-item.active {
+    background: var(--blue-lt);
+    color: var(--blue);
+    font-weight: 600;
+  }
+  .sidebar-item-icon {
+    font-size: 13px;
+    width: 16px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .sidebar-divider {
+    height: 1px;
+    background: var(--line);
+    margin: 6px 12px;
+  }
+
+  /* Unscheduled section in sidebar */
+  .sidebar-section-header.unscheduled {
+    background: #FFFCF5;
+    border-top: 1px solid var(--line);
+    position: sticky;
+    /* Not truly sticky in static mock but looks good */
+  }
+  .sidebar-section-label.unscheduled-label {
+    color: #B76E00;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .unscheduled-badge {
+    background: var(--amber);
+    color: #fff;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    letter-spacing: 0;
+  }
+
+  .unscheduled-issue-row {
+    display: flex;
+    align-items: center;
+    padding: 6px 12px 6px 14px;
+    gap: 7px;
+    cursor: pointer;
+    font-size: 12px;
+    margin: 0 4px;
+    border-radius: 4px;
+    position: relative;
+  }
+  .unscheduled-issue-row:hover {
+    background: var(--amber-tint);
+  }
+  .unscheduled-issue-row:hover .hover-hint {
+    display: block;
+  }
+  .warn-icon {
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  .unsch-key {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--blue);
+    white-space: nowrap;
+  }
+  .unsch-summary {
+    font-size: 11.5px;
+    color: var(--ink-mid);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 110px;
+  }
+  .hover-hint {
+    display: none;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+    color: var(--blue);
+    font-style: italic;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* Gantt area for option C */
+  .option-c-gantt {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Shared utility ── */
+  .bar-blue    { background: var(--blue); }
+  .bar-green   { background: var(--green); }
+  .bar-amber   { background: var(--amber); }
+  .bar-purple  { background: var(--purple); }
+  .bar-teal    { background: var(--teal); }
+  .bar-red     { background: var(--red); }
+
+  /* percent based positioning helpers — relative to 840px timeline width (14 cols × 60px) */
+  /* We'll use left% and width% of the .gantt-right which is flex:1 */
+
+  /* horizontal grid lines in row */
+  .gantt-right .vg { position: absolute; top: 0; bottom: 0; width: 1px; background: #F0F1F3; pointer-events: none; }
+
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  PAGE HEADER                                           -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-header">
+  <h1>Unscheduled Issues — Approach Comparison</h1>
+  <p>Three UI patterns for surfacing issues that have no start/end dates in the Gantt view. Evaluate each for discoverability, visual clarity, and workflow fit.</p>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  OPTION A — Unscheduled Tray                          -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="option-block">
+  <div class="option-header">
+    <div class="option-label">
+      <span class="option-badge">Option A</span>
+      <span class="option-title">Unscheduled Tray — sticky bottom section</span>
+    </div>
+    <p class="option-meta">
+      <strong>Pro:</strong> Unscheduled issues are always visible and clearly separated; drag-to-schedule interaction is natural.<br>
+      <strong>Con:</strong> Takes up vertical space even when there are many scheduled rows; the tray area can feel disconnected from the main timeline.
+    </p>
+  </div>
+
+  <div class="gantt-shell">
+
+    <!-- Timeline header -->
+    <div class="gantt-thead">
+      <div class="gantt-thead-left">Issue</div>
+      <div class="gantt-thead-right">
+        <div class="gantt-month">April 2026</div>
+        <div class="gantt-month">May 2026</div>
+      </div>
+    </div>
+    <!-- Day ticks -->
+    <div class="gantt-days-row">
+      <div class="gantt-days-left"></div>
+      <div class="gantt-days-right">
+        <div class="day-tick">7</div><div class="day-tick">8</div><div class="day-tick">9</div><div class="day-tick">10</div>
+        <div class="day-tick">11</div><div class="day-tick">14</div><div class="day-tick">15</div>
+        <div class="day-tick today-tick">21</div>
+        <div class="day-tick">22</div><div class="day-tick">23</div><div class="day-tick">28</div>
+        <div class="day-tick">29</div><div class="day-tick">1</div><div class="day-tick">5</div>
+      </div>
+    </div>
+
+    <!-- Group: Design -->
+    <div class="gantt-row group">
+      <div class="gantt-left"><span class="chevron">▼</span> Design <span class="group-count">3</span></div>
+      <div class="gantt-right"></div>
+    </div>
+
+    <!-- Issue rows -->
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-101</span>
+        <span class="issue-summary">Redesign onboarding flow</span>
+      </div>
+      <div class="gantt-right">
+        <div class="vg" style="left:7.1%"></div><div class="vg" style="left:14.3%"></div><div class="vg" style="left:21.4%"></div>
+        <div class="vg" style="left:28.6%"></div><div class="vg" style="left:35.7%"></div><div class="vg" style="left:42.8%"></div>
+        <div class="vg" style="left:50%"></div><div class="vg" style="left:57.1%"></div><div class="vg" style="left:64.3%"></div>
+        <div class="vg" style="left:71.4%"></div><div class="vg" style="left:78.6%"></div><div class="vg" style="left:85.7%"></div>
+        <div class="gantt-bar bar-blue" style="left:3%;width:30%">DEM-101 Redesign onboarding</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-102</span>
+        <span class="issue-summary">Component library audit</span>
+      </div>
+      <div class="gantt-right">
+        <div class="gantt-bar bar-teal" style="left:22%;width:24%">DEM-102 Component audit</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-103</span>
+        <span class="issue-summary">Icon set refresh</span>
+      </div>
+      <div class="gantt-right">
+        <div class="gantt-bar bar-purple" style="left:38%;width:20%">DEM-103 Icon refresh</div>
+      </div>
+    </div>
+
+    <!-- Group: Engineering -->
+    <div class="gantt-row group">
+      <div class="gantt-left"><span class="chevron">▼</span> Engineering <span class="group-count">2</span></div>
+      <div class="gantt-right"></div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-201</span>
+        <span class="issue-summary">API rate limiting</span>
+      </div>
+      <div class="gantt-right">
+        <div class="gantt-bar bar-green" style="left:10%;width:38%">DEM-201 API rate limiting</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-202</span>
+        <span class="issue-summary">Database migration v2</span>
+      </div>
+      <div class="gantt-right">
+        <div class="gantt-bar bar-blue" style="left:44%;width:28%">DEM-202 DB migration v2</div>
+      </div>
+    </div>
+
+    <!-- UNSCHEDULED GROUP HEADER -->
+    <div class="gantt-row unscheduled-group">
+      <div class="gantt-left">📋 Unscheduled <span class="group-count" style="background:#FDECC8;color:#B76E00">4</span></div>
+      <div class="gantt-right" style="background:#FFF8EE;display:flex;align-items:center;padding:0 16px;">
+        <span class="unscheduled-hint">
+          <span class="unscheduled-hint-arrow">←</span> Drag any chip onto the timeline to schedule it
+        </span>
+      </div>
+    </div>
+
+    <!-- Unscheduled issue rows -->
+    <div class="gantt-row unscheduled-issue">
+      <div class="gantt-left" style="flex-direction:column;align-items:flex-start;justify-content:center;gap:4px;padding:4px 10px 4px 12px;">
+        <div class="chips-row">
+          <div class="issue-chip"><span class="issue-chip-key">DEM-301</span><span class="issue-chip-summary">User profile redesign</span></div>
+          <div class="issue-chip"><span class="issue-chip-key">DEM-302</span><span class="issue-chip-summary">Email notification refactor</span></div>
+          <div class="issue-chip"><span class="issue-chip-key">DEM-303</span><span class="issue-chip-summary">Dark mode support</span></div>
+          <div class="issue-chip"><span class="issue-chip-key">DEM-304</span><span class="issue-chip-summary">Accessibility pass</span></div>
+        </div>
+      </div>
+      <div class="gantt-right">
+        <!-- hatched pattern via CSS background — already set on .unscheduled-issue .gantt-right -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  OPTION B — Ghost Bars                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="option-block">
+  <div class="option-header">
+    <div class="option-label">
+      <span class="option-badge">Option B</span>
+      <span class="option-title">Ghost Bars — pinned to Today's position</span>
+    </div>
+    <p class="option-meta">
+      <strong>Pro:</strong> Keeps all issues in context on the same timeline; visual contrast between ghost and solid bars is immediately apparent.<br>
+      <strong>Con:</strong> Multiple ghost bars stacking at Today can get cluttered; users might confuse dashed bars for low-confidence estimates rather than "no date."
+    </p>
+  </div>
+
+  <div class="gantt-shell">
+
+    <!-- Timeline header -->
+    <div class="gantt-thead">
+      <div class="gantt-thead-left">Issue</div>
+      <div class="gantt-thead-right">
+        <div class="gantt-month">April 2026</div>
+        <div class="gantt-month">May 2026</div>
+      </div>
+    </div>
+    <div class="gantt-days-row">
+      <div class="gantt-days-left"></div>
+      <div class="gantt-days-right">
+        <div class="day-tick">7</div><div class="day-tick">8</div><div class="day-tick">9</div><div class="day-tick">10</div>
+        <div class="day-tick">11</div><div class="day-tick">14</div><div class="day-tick">15</div>
+        <div class="day-tick today-tick">21</div>
+        <div class="day-tick">22</div><div class="day-tick">23</div><div class="day-tick">28</div>
+        <div class="day-tick">29</div><div class="day-tick">1</div><div class="day-tick">5</div>
+      </div>
+    </div>
+
+    <!-- Group -->
+    <div class="gantt-row group">
+      <div class="gantt-left"><span class="chevron">▼</span> Sprint 12 <span class="group-count">5</span></div>
+      <div class="gantt-right"></div>
+    </div>
+
+    <!-- Normal bars -->
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-101</span>
+        <span class="issue-summary">Redesign onboarding flow</span>
+      </div>
+      <div class="gantt-right">
+        <div class="today-line" style="left:50%"></div>
+        <div class="gantt-bar bar-blue" style="left:3%;width:30%">DEM-101 Redesign onboarding</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-102</span>
+        <span class="issue-summary">Component library audit</span>
+      </div>
+      <div class="gantt-right">
+        <div class="today-line" style="left:50%"></div>
+        <div class="gantt-bar bar-green" style="left:20%;width:35%">DEM-102 Component audit</div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key">DEM-103</span>
+        <span class="issue-summary">Icon set refresh</span>
+      </div>
+      <div class="gantt-right">
+        <div class="today-line" style="left:50%"></div>
+        <div class="gantt-bar bar-purple" style="left:54%;width:22%">DEM-103 Icon set refresh</div>
+      </div>
+    </div>
+
+    <!-- Ghost bars (unscheduled) -->
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key" style="color:#97A0AF">DEM-301</span>
+        <span class="issue-summary" style="color:#97A0AF">User profile redesign</span>
+      </div>
+      <div class="gantt-right" style="background:#FAFBFC;">
+        <div class="today-line" style="left:50%"></div>
+        <div style="position:absolute;left:51%;top:7px;width:21%;">
+          <div class="ghost-tooltip">No date set — drag to schedule</div>
+          <div class="gantt-bar ghost" style="position:relative;left:0;top:0;width:100%;">
+            ⏱ DEM-301 Profile redesign
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="gantt-row">
+      <div class="gantt-left">
+        <span class="issue-key" style="color:#97A0AF">DEM-302</span>
+        <span class="issue-summary" style="color:#97A0AF">Email notif. refactor</span>
+      </div>
+      <div class="gantt-right" style="background:#FAFBFC;">
+        <div class="today-line" style="left:50%"></div>
+        <div style="position:absolute;left:51%;top:7px;width:21%;">
+          <div class="gantt-bar ghost" style="position:relative;left:0;top:0;width:100%;">
+            ⏱ DEM-302 Email refactor
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!--  OPTION C — Collapsible Sidebar Panel                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="option-block">
+  <div class="option-header">
+    <div class="option-label">
+      <span class="option-badge">Option C</span>
+      <span class="option-title">Collapsible Sidebar Panel — grouped under Views</span>
+    </div>
+    <p class="option-meta">
+      <strong>Pro:</strong> Keeps the timeline area clean; suits users who prefer to triage unscheduled work separately before placing it on the chart.<br>
+      <strong>Con:</strong> Less discoverable — users must know to look in the sidebar; no spatial relationship between unscheduled items and the timeline.
+    </p>
+  </div>
+
+  <div class="option-c-layout">
+
+    <!-- Left sidebar -->
+    <div class="sidebar-panel">
+
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-label">Views</span>
+        <span class="sidebar-section-chevron">▾</span>
+      </div>
+
+      <div class="sidebar-item active">
+        <span class="sidebar-item-icon">📅</span> Timeline
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-item-icon">📋</span> Board
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-item-icon">📊</span> Workload
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-item-icon">📁</span> Backlog
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="sidebar-section-header">
+        <span class="sidebar-section-label">Filters</span>
+        <span class="sidebar-section-chevron">▾</span>
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-item-icon">👤</span> Assignee
+      </div>
+      <div class="sidebar-item">
+        <span class="sidebar-item-icon">🏷</span> Label
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- Unscheduled collapsible section -->
+      <div class="sidebar-section-header unscheduled">
+        <span class="sidebar-section-label unscheduled-label">
+          ⚠️ Unscheduled
+          <span class="unscheduled-badge">4</span>
+        </span>
+        <span class="sidebar-section-chevron">▾</span>
+      </div>
+
+      <div class="unscheduled-issue-row">
+        <span class="warn-icon">⚠️</span>
+        <span class="unsch-key">DEM-301</span>
+        <span class="unsch-summary">User profile redesign</span>
+      </div>
+      <div class="unscheduled-issue-row" style="background:#FFF8EE;">
+        <!-- simulating hover state -->
+        <span class="warn-icon">⚠️</span>
+        <span class="unsch-key">DEM-302</span>
+        <span class="unsch-summary">Email notif. refactor</span>
+        <span class="hover-hint" style="display:block;">Open in Jira ↗</span>
+      </div>
+      <div class="unscheduled-issue-row">
+        <span class="warn-icon">⚠️</span>
+        <span class="unsch-key">DEM-303</span>
+        <span class="unsch-summary">Dark mode support</span>
+      </div>
+      <div class="unscheduled-issue-row">
+        <span class="warn-icon">⚠️</span>
+        <span class="unsch-key">DEM-304</span>
+        <span class="unsch-summary">Accessibility pass</span>
+      </div>
+
+    </div>
+
+    <!-- Right gantt area -->
+    <div class="option-c-gantt">
+
+      <!-- Timeline header -->
+      <div class="gantt-thead" style="border-top:none;">
+        <div class="gantt-thead-left">Issue</div>
+        <div class="gantt-thead-right">
+          <div class="gantt-month">April 2026</div>
+          <div class="gantt-month">May 2026</div>
+        </div>
+      </div>
+      <div class="gantt-days-row">
+        <div class="gantt-days-left"></div>
+        <div class="gantt-days-right">
+          <div class="day-tick">7</div><div class="day-tick">8</div><div class="day-tick">9</div><div class="day-tick">10</div>
+          <div class="day-tick">11</div><div class="day-tick">14</div><div class="day-tick">15</div>
+          <div class="day-tick today-tick">21</div>
+          <div class="day-tick">22</div><div class="day-tick">23</div><div class="day-tick">28</div>
+          <div class="day-tick">29</div><div class="day-tick">1</div><div class="day-tick">5</div>
+        </div>
+      </div>
+
+      <!-- Group -->
+      <div class="gantt-row group">
+        <div class="gantt-left"><span class="chevron">▼</span> Design <span class="group-count">3</span></div>
+        <div class="gantt-right"></div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="issue-key">DEM-101</span>
+          <span class="issue-summary">Redesign onboarding</span>
+        </div>
+        <div class="gantt-right">
+          <div class="today-line" style="left:50%"></div>
+          <div class="gantt-bar bar-blue" style="left:4%;width:28%">DEM-101 Onboarding</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="issue-key">DEM-102</span>
+          <span class="issue-summary">Component audit</span>
+        </div>
+        <div class="gantt-right">
+          <div class="today-line" style="left:50%"></div>
+          <div class="gantt-bar bar-teal" style="left:24%;width:26%">DEM-102 Components</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="issue-key">DEM-103</span>
+          <span class="issue-summary">Icon set refresh</span>
+        </div>
+        <div class="gantt-right">
+          <div class="today-line" style="left:50%"></div>
+          <div class="gantt-bar bar-purple" style="left:44%;width:30%">DEM-103 Icons</div>
+        </div>
+      </div>
+
+      <!-- Group -->
+      <div class="gantt-row group">
+        <div class="gantt-left"><span class="chevron">▼</span> Engineering <span class="group-count">2</span></div>
+        <div class="gantt-right"></div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="issue-key">DEM-201</span>
+          <span class="issue-summary">API rate limiting</span>
+        </div>
+        <div class="gantt-right">
+          <div class="today-line" style="left:50%"></div>
+          <div class="gantt-bar bar-green" style="left:12%;width:40%">DEM-201 Rate limiting</div>
+        </div>
+      </div>
+      <div class="gantt-row">
+        <div class="gantt-left">
+          <span class="issue-key">DEM-202</span>
+          <span class="issue-summary">DB migration v2</span>
+        </div>
+        <div class="gantt-right">
+          <div class="today-line" style="left:50%"></div>
+          <div class="gantt-bar bar-red" style="left:55%;width:28%">DEM-202 DB migration</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

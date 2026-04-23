@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { router } from '@forge/bridge';
+import { router, invoke } from '@forge/bridge';
+import { C, T } from '../tokens';
+
+const PRIORITY_OPTIONS = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
 
 const STATUS_COLORS = {
   'To Do':       { bg: '#f4f5f7', text: '#676879', border: '#c1c7d0' },
@@ -58,7 +61,7 @@ function GripDots({ color }) {
   );
 }
 
-export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPadding, totalDays, squadColor, onUpdate, startDateField, endDateField, onPreview, previewFields, availableFields, isCritical }) {
+export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPadding, totalDays, squadColor, onUpdate, startDateField, endDateField, onPreview, previewFields, availableFields, isCritical, onLinkDragStart, onDeleteLink, onFieldUpdate, getIssueDates, onDragStart, onDragEnd }) {
   const [showTooltip, setShowTooltip]   = useState(false);
   const [tooltipPos, setTooltipPos]     = useState({ x: 0, y: 0 });
   const [hovered, setHovered]           = useState(false);
@@ -97,15 +100,17 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
   const priority = fields.priority?.name || 'Medium';
   const assignee = fields.assignee?.displayName || 'Unassigned';
 
+  const isUnscheduled = !fields[sdf] && !fields[edf];
+
   let startDate = parseDate(fields[sdf]);
   let endDate   = parseDate(fields[edf]);
 
   if (startDate && !endDate) endDate = addDays(startDate, 7);
   else if (!startDate && endDate) startDate = addDays(endDate, -7);
   else if (!startDate && !endDate) {
-    const ref = new Date();
-    startDate = addDays(ref, -3);
-    endDate   = addDays(ref, 3);
+    const ref = new Date(); ref.setHours(0, 0, 0, 0);
+    startDate = ref;
+    endDate   = addDays(ref, 2); // 3-day ghost anchored to today
   }
 
   const baseStartOffset = daysBetween(viewStart, startDate);
@@ -131,10 +136,40 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
   const overflowRight = endOffset > totalDays;
   const statusColor = getStatusColor(status);
   const barHeight = rowHeight - barPadding * 2;
-  const barBg     = squadColor ? squadColor.bg     : statusColor.bg;
-  const barBorder = squadColor ? squadColor.border : statusColor.border;
-  const barText   = squadColor ? squadColor.text   : statusColor.text;
+  const barBg     = isUnscheduled ? '#fffbf0' : (squadColor ? squadColor.bg     : statusColor.bg);
+  const barBorder = isUnscheduled ? '#fdab3d' : (squadColor ? squadColor.border : statusColor.border);
+  const barText   = isUnscheduled ? '#97A0AF' : (squadColor ? squadColor.text   : statusColor.text);
   const showHandles = (hovered || active) && !overflowLeft && !overflowRight;
+
+  // ── Dependency constraints ────────────────────────────────────────────────
+  // Returns { minDelta, maxDelta } in days based on Blocks links.
+  // outward: this blocks X → this.endDate+delta <= X.startDate → maxDelta = X.startDate - endDate
+  // inward:  X blocks this → X.endDate <= this.startDate+delta → minDelta = X.endDate - startDate
+  function getDependencyDeltaBounds() {
+    if (!getIssueDates) return { minDelta: -Infinity, maxDelta: Infinity };
+    const links = fields.issuelinks || [];
+    let minDelta = -Infinity, maxDelta = Infinity;
+    for (const link of links) {
+      if (link.type?.name !== 'Blocks') continue;
+      if (link.outwardIssue) {
+        // this blocks outwardIssue — this must end before outwardIssue starts
+        const dates = getIssueDates(link.outwardIssue.key);
+        if (dates?.startDate) {
+          const limit = daysBetween(endDate, parseDate(dates.startDate)); // how many days end can move right
+          if (limit < maxDelta) maxDelta = limit;
+        }
+      }
+      if (link.inwardIssue) {
+        // inwardIssue blocks this — this must start after inwardIssue ends
+        const dates = getIssueDates(link.inwardIssue.key);
+        if (dates?.endDate) {
+          const limit = daysBetween(startDate, parseDate(dates.endDate)); // how many days start can move left (negative = must go right)
+          if (limit > minDelta) minDelta = limit;
+        }
+      }
+    }
+    return { minDelta, maxDelta };
+  }
 
   // ── Move drag ─────────────────────────────────────────────────────────────
   function handleDragMouseDown(e) {
@@ -146,14 +181,18 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
     const startX = e.clientX;
     let delta = 0;
 
+    const { minDelta, maxDelta } = getDependencyDeltaBounds();
+    onDragStart && onDragStart();
     const onMove = (ev) => {
       if (Math.abs(ev.clientX - startX) > 4) didDragRef.current = true;
       const raw = Math.round((ev.clientX - startX) / dayWidth);
-      if (raw !== delta) { delta = raw; setIsDragging(true); setDragDelta(delta); }
+      const clamped = Math.max(minDelta, Math.min(maxDelta, raw));
+      if (clamped !== delta) { delta = clamped; setIsDragging(true); setDragDelta(delta); }
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      onDragEnd && onDragEnd();
       setIsDragging(false);
       setDragDelta(0);
       if (didDragRef.current && delta !== 0 && onUpdate) {
@@ -173,10 +212,12 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
     const startX = e.clientX;
     let delta = 0, moved = false;
 
+    const { maxDelta: maxEndDelta } = getDependencyDeltaBounds();
     const onMove = (ev) => {
       const raw = Math.round((ev.clientX - startX) / dayWidth);
       if (Math.abs(ev.clientX - startX) > 4) moved = true;
-      if (raw !== delta) { delta = raw; setIsResizingEnd(true); setResizeEndDelta(delta); }
+      const clamped = Math.min(maxEndDelta, raw);
+      if (clamped !== delta) { delta = clamped; setIsResizingEnd(true); setResizeEndDelta(delta); }
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -203,10 +244,12 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
     const startX = e.clientX;
     let delta = 0, moved = false;
 
+    const { minDelta: minStartDelta } = getDependencyDeltaBounds();
     const onMove = (ev) => {
       const raw = Math.round((ev.clientX - startX) / dayWidth);
       if (Math.abs(ev.clientX - startX) > 4) moved = true;
-      if (raw !== delta) { delta = raw; setIsResizingStart(true); setResizeStartDelta(delta); }
+      const clamped = Math.max(minStartDelta, raw);
+      if (clamped !== delta) { delta = clamped; setIsResizingStart(true); setResizeStartDelta(delta); }
     };
     const onUp = () => {
       document.removeEventListener('mousemove', onMove);
@@ -237,7 +280,6 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
 
   function handleClick(e) {
     if (didDragRef.current) return;
-    // Capture rect before timer (React clears synthetic events)
     const rect = e.currentTarget.getBoundingClientRect();
     if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
     clickTimerRef.current = setTimeout(() => {
@@ -249,12 +291,13 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
   function handleDoubleClick() {
     if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
     setShowTooltip(false);
-    router.navigate(`/browse/${key}`);
+    router.open(`/browse/${key}`);
   }
 
   return (
     <>
       <div
+        data-issue-key={key}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onMouseEnter={() => { setHovered(true); clearTimeout(hideTimerRef.current); }}
@@ -265,9 +308,13 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
           left: barLeft, top: barPadding,
           width: barWidth, height: barHeight,
           background: barBg,
-          border: isCritical ? '2px solid #E2445C' : `1px solid ${barBorder}35`,
-          borderLeft: isCritical ? '3px solid #E2445C' : `3px solid ${barBorder}`,
-          borderRadius: overflowLeft ? '0 6px 6px 0' : overflowRight ? '6px 0 0 6px' : '6px',
+          border: isUnscheduled
+            ? `1.5px dashed ${barBorder}`
+            : isCritical ? `1.5px solid ${C.critical}` : `1px solid ${barBorder}35`,
+          borderLeft: isUnscheduled
+            ? `1.5px dashed ${barBorder}`
+            : isCritical ? `1.5px solid ${C.critical}` : `3px solid ${barBorder}`,
+          borderRadius: overflowLeft ? '0 4px 4px 0' : overflowRight ? '4px 0 0 4px' : '4px',
           cursor: isDragging ? 'grabbing' : 'grab',
           display: 'flex', alignItems: 'center',
           paddingLeft: showHandles && !overflowLeft ? '16px' : (overflowLeft ? '6px' : '8px'),
@@ -275,19 +322,33 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
           overflow: 'hidden',
           zIndex: active ? 10 : 2,
           boxSizing: 'border-box', userSelect: 'none',
-          opacity: active ? 0.85 : 1,
-          boxShadow: active ? '0 6px 20px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
+          opacity: isUnscheduled ? (active ? 0.9 : 0.65) : (active ? 0.85 : 1),
+          boxShadow: active ? '0 6px 20px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.08)',
           transition: active ? 'none' : 'box-shadow 0.15s ease, opacity 0.1s ease',
         }}
       >
+        {/* Done overlay */}
+        {status === 'Done' && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.2)', pointerEvents: 'none', borderRadius: 'inherit' }} />
+        )}
         {overflowLeft && <span style={{ color: barText, marginRight: 3, fontSize: 10, opacity: 0.7 }}>‹</span>}
-        <span style={{ fontSize: '10px', fontWeight: 700, color: barText, background: barBorder + '25', borderRadius: '3px', padding: '0 4px', whiteSpace: 'nowrap', marginRight: 5, flexShrink: 0, lineHeight: '16px' }}>
+        {isUnscheduled && <span style={{ fontSize: 11, marginRight: 4, flexShrink: 0, opacity: 0.8 }}>⏱</span>}
+        <span style={{ fontSize: '10px', fontWeight: 500, color: barText, fontFamily: T.mono, letterSpacing: 0.2, whiteSpace: 'nowrap', marginRight: 5, flexShrink: 0, lineHeight: '16px', opacity: 0.7 }}>
           {key}
         </span>
-        <span style={{ fontSize: '11px', fontWeight: 600, color: barText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-          {summary}
+        <span style={{ fontSize: '10.5px', fontWeight: 500, color: barText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+          {isUnscheduled ? 'No date — drag to schedule' : summary}
         </span>
         {overflowRight && <span style={{ color: barText, marginLeft: 3, fontSize: 10, opacity: 0.7 }}>›</span>}
+        {/* Blocked chip */}
+        {(status === 'Blocked' || status === 'BLOCKED') && (
+          <span style={{
+            fontSize: 9, fontWeight: 700, background: C.critical, color: '#fff',
+            padding: '1px 5px', borderRadius: 2,
+            position: 'absolute', right: 4,
+            pointerEvents: 'none',
+          }}>BLOCKED</span>
+        )}
 
         {/* Left resize handle */}
         {showHandles && (
@@ -322,6 +383,46 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
             <GripDots color={barBorder} />
           </div>
         )}
+
+        {/* Left connection dot — drag to mark this issue as blocked by another */}
+        {hovered && !active && !overflowLeft && onLinkDragStart && (
+          <div
+            onMouseDown={(e) => {
+              e.stopPropagation(); e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              onLinkDragStart(key, 'inward', r.left + r.width / 2, r.top + r.height / 2);
+            }}
+            onMouseEnter={(e) => e.stopPropagation()}
+            title="Drag to mark this issue as blocked by another"
+            style={{
+              position: 'absolute', left: -6, top: '50%', transform: 'translateY(-50%)',
+              width: 12, height: 12, borderRadius: '50%',
+              background: '#6B778C', border: '2px solid #fff',
+              cursor: 'crosshair', zIndex: 20,
+              boxShadow: '0 0 0 2px #6B778C44',
+            }}
+          />
+        )}
+
+        {/* Right connection dot — drag to mark this issue as blocking another */}
+        {hovered && !active && !overflowRight && onLinkDragStart && (
+          <div
+            onMouseDown={(e) => {
+              e.stopPropagation(); e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              onLinkDragStart(key, 'outward', r.left + r.width / 2, r.top + r.height / 2);
+            }}
+            onMouseEnter={(e) => e.stopPropagation()}
+            title="Drag to mark this issue as blocking another"
+            style={{
+              position: 'absolute', right: -6, top: '50%', transform: 'translateY(-50%)',
+              width: 12, height: 12, borderRadius: '50%',
+              background: '#0073ea', border: '2px solid #fff',
+              cursor: 'crosshair', zIndex: 20,
+              boxShadow: '0 0 0 2px #0073ea44',
+            }}
+          />
+        )}
       </div>
 
       {showTooltip && !active && (
@@ -336,6 +437,8 @@ export default function GanttBar({ issue, viewStart, dayWidth, rowHeight, barPad
           sdf={sdf} edf={edf}
           onMouseEnter={() => clearTimeout(hideTimerRef.current)}
           onMouseLeave={scheduleHide}
+          onDeleteLink={onDeleteLink}
+          onFieldUpdate={onFieldUpdate}
         />
       )}
     </>
@@ -379,12 +482,125 @@ function renderFieldValue(fieldId, fields, statusColor, startDate, endDate, sdf,
   return v.displayName || v.name || v.value || '—';
 }
 
-function Tooltip({ issue, x, y, startDate, endDate, status, priority, assignee, statusColor, previewFields, availableFields, sdf, edf, onMouseEnter, onMouseLeave }) {
-  const { key, fields } = issue;
-  const safeX = Math.min(x, window.innerWidth - 290);
-  const safeY = Math.min(y, window.innerHeight - 220);
+function getEditorType(fieldId, availableFields) {
+  if (fieldId === 'priority') return 'priority';
+  if (fieldId === 'labels') return 'labels';
+  if (fieldId === 'status') return 'status';
+  if (fieldId === 'customfield_10015' || fieldId === 'duedate') return 'date';
+  if (fieldId === 'assignee' || fieldId === 'reporter' || fieldId === 'issuetype' || fieldId === 'project' || fieldId === 'resolution') return null;
+  const f = availableFields?.find(f => f.id === fieldId);
+  const type = f?.schemaType || f?.schema?.type;
+  if (type === 'date' || type === 'datetime') return 'date';
+  if (type === 'string') return 'text';
+  if (type === 'number') return 'number';
+  return null;
+}
 
-  // Use configured previewFields, or fall back to default set
+function EditableRow({ fieldId, issueKey, fields, sdf, edf, statusColor, startDate, endDate, availableFields, wide, label, onFieldSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [transitions, setTransitions] = useState([]);
+  const editorType = getEditorType(fieldId, availableFields);
+
+  async function startEdit(e) {
+    e.stopPropagation();
+    if (!editorType) return;
+    if (fieldId === 'status') {
+      const trans = await invoke('getIssueTransitions', { key: issueKey });
+      setTransitions(trans || []);
+    } else if (fieldId === 'priority') {
+      setDraft(fields.priority?.name || 'Medium');
+    } else if (fieldId === 'labels') {
+      setDraft((fields.labels || []).join(' '));
+    } else if (fieldId === sdf || fieldId === 'customfield_10015') {
+      setDraft(fields[sdf] || '');
+    } else if (fieldId === edf || fieldId === 'duedate') {
+      setDraft(fields[edf] || '');
+    } else {
+      const v = fields[fieldId];
+      setDraft(v != null ? String(v) : '');
+    }
+    setEditing(true);
+  }
+
+  async function save(e) {
+    e?.stopPropagation();
+    setEditing(false);
+    let value;
+    if (fieldId === 'priority') value = { name: draft };
+    else if (fieldId === 'labels') value = draft.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    else value = draft || null;
+    onFieldSaved && onFieldSaved(fieldId, value);
+    await invoke('updateIssueField', { key: issueKey, fieldId, value });
+  }
+
+  async function applyTransition(e, transitionId, toName) {
+    e.stopPropagation();
+    setEditing(false);
+    onFieldSaved && onFieldSaved('status', { name: toName });
+    await invoke('transitionIssue', { key: issueKey, transitionId });
+  }
+
+  const readVal = renderFieldValue(fieldId, fields, statusColor, startDate, endDate, sdf, edf);
+  if (readVal === null) return null;
+
+  return (
+    <div
+      style={{ gridColumn: wide ? '1 / -1' : 'auto' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ fontSize: '10px', fontWeight: 700, color: '#c3c6d4', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+        {label}
+        {editorType && hovered && !editing && (
+          <span onClick={startEdit} style={{ cursor: 'pointer', opacity: 0.6, fontSize: '10px' }} title="Edit">✏</span>
+        )}
+      </div>
+      {editing ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }} onClick={e => e.stopPropagation()}>
+          {fieldId === 'status' ? (
+            transitions.length === 0
+              ? <span style={{ fontSize: '11px', color: '#97A0AF' }}>Loading…</span>
+              : transitions.map(t => (
+                <button key={t.id} onClick={(e) => applyTransition(e, t.id, t.to?.name || t.name)}
+                  style={{ background: '#0052CC', color: '#fff', border: 'none', borderRadius: '3px', padding: '2px 7px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}>
+                  {t.name}
+                </button>
+              ))
+          ) : fieldId === 'priority' ? (
+            <select value={draft} onChange={e => setDraft(e.target.value)} onBlur={save} autoFocus
+              style={{ fontSize: '11px', border: '1px solid #0052CC', borderRadius: '3px', padding: '2px 4px', outline: 'none' }}>
+              {PRIORITY_OPTIONS.map(p => <option key={p}>{p}</option>)}
+            </select>
+          ) : (
+            <input
+              type={editorType === 'date' ? 'date' : editorType === 'number' ? 'number' : 'text'}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') save(e); if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); } }}
+              onBlur={save}
+              autoFocus
+              style={{ fontSize: '11px', border: '1px solid #0052CC', borderRadius: '3px', padding: '2px 4px', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            />
+          )}
+          {fieldId !== 'status' && <span onClick={() => setEditing(false)} style={{ cursor: 'pointer', color: '#97A0AF', fontSize: '11px' }}>✕</span>}
+        </div>
+      ) : (
+        <div style={{ fontSize: '12px', color: '#323338', cursor: editorType ? 'pointer' : 'default' }} onClick={editorType ? startEdit : undefined}>
+          {readVal}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tooltip({ issue, x, y, startDate, endDate, status, priority, assignee, statusColor, previewFields, availableFields, sdf, edf, onMouseEnter, onMouseLeave, onDeleteLink, onFieldUpdate }) {
+  const [localFields, setLocalFields] = useState(issue.fields);
+  const { key } = issue;
+  const safeX = Math.min(x, window.innerWidth - 290);
+  const safeY = Math.min(y, window.innerHeight - 320);
+
   const fieldsToShow = previewFields?.length
     ? previewFields.filter(f => f !== 'summary')
     : ['status', 'priority', sdf, edf, 'assignee'];
@@ -393,42 +609,89 @@ function Tooltip({ issue, x, y, startDate, endDate, status, priority, assignee, 
     return availableFields?.find(f => f.id === fieldId)?.name || BUILTIN_FIELD_LABELS[fieldId] || fieldId;
   }
 
+  function handleFieldSaved(fieldId, value) {
+    setLocalFields(prev => ({ ...prev, [fieldId]: value }));
+    onFieldUpdate && onFieldUpdate(key, fieldId, value);
+  }
+
+  const blocksLinks = (localFields.issuelinks || []).filter(l => l.type?.name === 'Blocks' && l.outwardIssue);
+  const blockedByLinks = (localFields.issuelinks || []).filter(l => l.type?.name === 'Blocks' && l.inwardIssue);
+  const recalcStatus = localFields.status?.name || status;
+  const recalcStatusColor = { ...statusColor, ...(BUILTIN_STATUS_COLORS[recalcStatus] || {}) };
+
   return (
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      onClick={e => e.stopPropagation()}
       style={{
-        position: 'fixed', left: safeX, top: safeY, width: 280,
+        position: 'fixed', left: safeX, top: safeY, width: 290,
         background: '#fff', border: '1px solid #e6e9ef', borderRadius: '8px',
         boxShadow: '0 8px 30px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
         zIndex: 9999, padding: '14px', pointerEvents: 'auto', fontSize: '12px', color: '#323338',
+        maxHeight: '80vh', overflowY: 'auto',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
         <span style={{ background: '#dce5ff', color: '#0060b9', borderRadius: '4px', padding: '2px 7px', fontWeight: 700, fontSize: '11px' }}>{key}</span>
-        <span style={{ color: '#6B778C', fontSize: '11px', flex: 1 }}>{fields.project?.name || ''}</span>
+        <span style={{ color: '#6B778C', fontSize: '11px', flex: 1 }}>{localFields.project?.name || ''}</span>
       </div>
-      <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', color: '#323338' }}>{fields.summary}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+      <div style={{ fontWeight: 600, fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', color: '#323338' }}>{localFields.summary}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 10px' }}>
         {fieldsToShow.map(fieldId => {
-          const value = renderFieldValue(fieldId, fields, statusColor, startDate, endDate, sdf, edf);
-          if (value === null) return null;
-          const isWide = fieldId === 'assignee' || fieldId === 'reporter' || fieldId === 'labels' || fieldId === 'project';
+          const wide = fieldId === 'assignee' || fieldId === 'reporter' || fieldId === 'labels' || fieldId === 'project';
           return (
-            <TF key={fieldId} label={getLabel(fieldId)} wide={isWide}>{value}</TF>
+            <EditableRow
+              key={fieldId}
+              fieldId={fieldId}
+              issueKey={key}
+              fields={localFields}
+              sdf={sdf} edf={edf}
+              statusColor={recalcStatusColor}
+              startDate={startDate} endDate={endDate}
+              availableFields={availableFields}
+              wide={wide}
+              label={getLabel(fieldId)}
+              onFieldSaved={handleFieldSaved}
+            />
           );
         })}
       </div>
-      <div style={{ marginTop: '8px', fontSize: '11px', color: '#97A0AF' }}>Double-click to open in Jira</div>
+      {(blocksLinks.length > 0 || blockedByLinks.length > 0) && (
+        <div style={{ marginTop: '10px', borderTop: '1px solid #F4F5F7', paddingTop: '8px' }}>
+          {blocksLinks.length > 0 && <>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: '#c3c6d4', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Blocks</div>
+            {blocksLinks.map(l => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
+                <span style={{ background: '#ffe1e1', color: '#bf2040', borderRadius: '3px', padding: '1px 5px', fontSize: '11px', fontWeight: 600 }}>{l.outwardIssue.key}</span>
+                <span style={{ flex: 1, fontSize: '11px', color: '#42526E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.outwardIssue.fields?.summary || ''}</span>
+                {onDeleteLink && <button onClick={(e) => { e.stopPropagation(); onDeleteLink(l.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#97A0AF', fontSize: '12px', padding: '0 2px', lineHeight: 1 }} title="Remove">✕</button>}
+              </div>
+            ))}
+          </>}
+          {blockedByLinks.length > 0 && <>
+            <div style={{ fontSize: '10px', fontWeight: 700, color: '#c3c6d4', marginBottom: '4px', marginTop: blocksLinks.length ? '6px' : 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Blocked by</div>
+            {blockedByLinks.map(l => (
+              <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
+                <span style={{ background: '#fff3c7', color: '#8a6800', borderRadius: '3px', padding: '1px 5px', fontSize: '11px', fontWeight: 600 }}>{l.inwardIssue.key}</span>
+                <span style={{ flex: 1, fontSize: '11px', color: '#42526E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.inwardIssue.fields?.summary || ''}</span>
+                {onDeleteLink && <button onClick={(e) => { e.stopPropagation(); onDeleteLink(l.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#97A0AF', fontSize: '12px', padding: '0 2px', lineHeight: 1 }} title="Remove">✕</button>}
+              </div>
+            ))}
+          </>}
+        </div>
+      )}
+      <div style={{ marginTop: '8px', fontSize: '11px', color: '#97A0AF' }}>Click a field to edit · Double-click bar to open in Jira</div>
     </div>
   );
 }
 
-function TF({ label, children, wide }) {
-  return (
-    <div style={{ gridColumn: wide ? '1 / -1' : 'auto' }}>
-      <div style={{ fontSize: '10px', fontWeight: 700, color: '#c3c6d4', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{label}</div>
-      <div style={{ fontSize: '12px', color: '#323338' }}>{children}</div>
-    </div>
-  );
-}
+const BUILTIN_STATUS_COLORS = {
+  'To Do':       { bg: '#f4f5f7', text: '#676879', border: '#c1c7d0' },
+  'In Progress': { bg: '#dce5ff', text: '#0060b9', border: '#0073ea' },
+  'In Review':   { bg: '#f0dcff', text: '#7c3aad', border: '#a25ddc' },
+  'Review':      { bg: '#f0dcff', text: '#7c3aad', border: '#a25ddc' },
+  'Done':        { bg: '#dcf5e7', text: '#007a44', border: '#00c875' },
+  'Canceled':    { bg: '#f4f5f7', text: '#c1c7d0', border: '#e6e9ef' },
+  'Blocked':     { bg: '#ffe1e1', text: '#bf2040', border: '#e2445c' },
+};

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from '@forge/bridge';
 
-const TREE_WIDTH    = 400;
+const TREE_WIDTH_DEFAULT = 400;
+const TREE_WIDTH_MIN     = 180;
+const TREE_WIDTH_MAX     = 800;
 const DAY_WIDTH     = 38;
 const ROW_HEIGHT    = 32;
 const HEADER_HEIGHT = 62;
@@ -32,10 +34,28 @@ function getParentKey(issue) {
   return null;
 }
 
+const FIELD_COL_WIDTH = 110;
+const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDateShort(str) {
+  if (!str) return '';
+  const d = parseDate(str);
+  if (!d) return str;
+  return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+function renderFieldValue(raw) {
+  if (raw == null) return '';
+  if (typeof raw === 'string') return fmtDateShort(raw) || raw;
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+  if (Array.isArray(raw)) return raw.map(v => (typeof v === 'object' ? (v?.name || v?.value || v?.displayName || '') : String(v))).filter(Boolean).join(', ');
+  if (typeof raw === 'object') return raw.name || raw.displayName || raw.value || raw.key || '';
+  return '';
+}
+
 export default function ProjectView({
   issues, today, startDateField, endDateField,
   onUpdateIssue, holidays,
   scrollToTarget, onVisibleMonthChange,
+  listFields, availableFields,
 }) {
   const bodyRef       = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -45,6 +65,9 @@ export default function ProjectView({
   const [selectedKey, setSelectedKey] = useState(null);
   const [hoveredKey, setHoveredKey]   = useState(null);
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
+  const [treeWidth, setTreeWidth]     = useState(TREE_WIDTH_DEFAULT);
+  const [showTimeline, setShowTimeline] = useState(true);
+  const dividerDragRef = useRef(null);
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -156,6 +179,23 @@ export default function ProjectView({
 
   function expandAll() {
     setCollapsed(new Set());
+  }
+
+  // ── Divider drag ────────────────────────────────────────────────────────
+  function startDividerDrag(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = treeWidth;
+    function onMove(ev) {
+      const delta = ev.clientX - startX;
+      setTreeWidth(Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, startWidth + delta)));
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   // ── Scroll sync: timeline header ← body horizontal scroll ───────────────
@@ -462,23 +502,50 @@ export default function ProjectView({
   const totalContentHeight = flatRows.length * ROW_HEIGHT;
   const allExpanded = collapsed.size === 0;
 
+  // Extra columns from listFields (exclude 'summary' — name is already shown)
+  const extraFields = useMemo(() => {
+    const allF = availableFields || [];
+    return (listFields || [])
+      .filter(fid => fid && fid !== 'summary')
+      .map(fid => ({ id: fid, name: allF.find(f => f.id === fid)?.name || fid }));
+  }, [listFields, availableFields]);
+
+  const leftPanelWidth = showTimeline ? treeWidth : '100%';
+
   return (
     <div style={s.outer}>
       {/* ── Tree header (sticky top-left) ── */}
-      <div style={s.treeHeader}>
-        <span style={s.treeHeaderLabel}>Name</span>
-        <span style={s.treeHeaderStats}>
-          {issues.length} issue{issues.length !== 1 ? 's' : ''} &middot; {roots.length} root{roots.length !== 1 ? 's' : ''}
-        </span>
-        <button style={s.expandCollapseBtn} onClick={allExpanded ? collapseAll : expandAll}>
-          {allExpanded ? 'Collapse all' : 'Expand all'}
-        </button>
+      <div style={{ ...s.treeHeader, width: leftPanelWidth }}>
+        {/* Name column header */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', padding: '0 12px' }}>
+          <span style={s.treeHeaderLabel}>Name</span>
+          <span style={s.treeHeaderStats}>
+            {issues.length} issue{issues.length !== 1 ? 's' : ''} &middot; {roots.length} root{roots.length !== 1 ? 's' : ''}
+          </span>
+          <button style={s.expandCollapseBtn} onClick={allExpanded ? collapseAll : expandAll}>
+            {allExpanded ? 'Collapse all' : 'Expand all'}
+          </button>
+          {/* Toggle timeline button */}
+          <button
+            style={{ ...s.expandCollapseBtn, padding: '3px 7px', color: showTimeline ? '#0052CC' : '#6B778C', background: showTimeline ? '#DEEBFF' : '#fff' }}
+            title={showTimeline ? 'Hide timeline' : 'Show timeline'}
+            onClick={() => setShowTimeline(v => !v)}
+          >
+            {showTimeline ? '⊣ Hide' : '⊢ Timeline'}
+          </button>
+        </div>
+        {/* Extra field column headers */}
+        {extraFields.map(f => (
+          <div key={f.id} style={s.fieldColHeader}>{f.name}</div>
+        ))}
       </div>
 
       {/* ── Timeline header (sticky top, scrolls horizontally with body) ── */}
-      <div style={s.timelineHeaderWrap} id="project-header-scroll">
-        {renderTimelineHeader()}
-      </div>
+      {showTimeline && (
+        <div style={{ ...s.timelineHeaderWrap, left: treeWidth }} id="project-header-scroll">
+          {renderTimelineHeader()}
+        </div>
+      )}
 
       {/* ── Body: tree + timeline, single vertical scroll container ── */}
       <div
@@ -486,9 +553,9 @@ export default function ProjectView({
         style={s.body}
         onScroll={handleScroll}
       >
-        <div style={{ display: 'flex', minWidth: TREE_WIDTH + totalWidth, height: totalContentHeight }}>
-          {/* Tree column — sticky left */}
-          <div style={s.treeColumn}>
+        <div style={{ display: 'flex', minWidth: showTimeline ? treeWidth + totalWidth : '100%', height: totalContentHeight }}>
+          {/* Tree + field columns — sticky left */}
+          <div style={{ ...s.treeColumn, width: leftPanelWidth, position: showTimeline ? 'sticky' : 'relative' }}>
             {flatRows.map((row, idx) => {
               const iss = issueByKey[row.key];
               if (!iss) return null;
@@ -503,7 +570,6 @@ export default function ProjectView({
                   style={{
                     ...s.treeRow,
                     height: ROW_HEIGHT,
-                    paddingLeft: 8 + indent,
                     background: isSelected ? '#DEEBFF' : isHovered ? '#F4F5F7' : '#fff',
                   }}
                   onClick={() => setSelectedKey(row.key)}
@@ -511,67 +577,83 @@ export default function ProjectView({
                   onMouseEnter={() => setHoveredKey(row.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
-                  {/* Expand/collapse triangle */}
-                  {row.hasKids ? (
-                    <span
-                      style={s.toggle}
-                      onClick={(e) => { e.stopPropagation(); toggleNode(row.key); }}
-                    >
-                      {row.isCollapsed ? '\u25B8' : '\u25BE'}
-                    </span>
-                  ) : (
-                    <span style={{ width: 14, display: 'inline-block', flexShrink: 0 }} />
-                  )}
-                  {/* Key chip */}
-                  <span style={s.keyBadge}>{row.key}</span>
-                  {/* Summary */}
-                  <span style={s.summaryText}>{summary}</span>
-                  {row.hasKids && (
-                    <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
-                  )}
+                  {/* Name cell */}
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden' }}>
+                    {row.hasKids ? (
+                      <span
+                        style={s.toggle}
+                        onClick={(e) => { e.stopPropagation(); toggleNode(row.key); }}
+                      >
+                        {row.isCollapsed ? '\u25B6' : '\u25BC'}
+                      </span>
+                    ) : (
+                      <span style={{ width: 20, flexShrink: 0 }} />
+                    )}
+                    <span style={s.keyBadge}>{row.key}</span>
+                    <span style={s.summaryText}>{summary}</span>
+                    {row.hasKids && (
+                      <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
+                    )}
+                  </div>
+                  {/* Extra field cells */}
+                  {extraFields.map(f => (
+                    <div key={f.id} style={s.fieldCell}>
+                      {renderFieldValue(iss.fields?.[f.id])}
+                    </div>
+                  ))}
                 </div>
               );
             })}
           </div>
 
+          {/* Draggable divider */}
+          <div
+            style={{ width: 5, flexShrink: 0, cursor: 'col-resize', position: 'sticky', left: treeWidth - 2, zIndex: 7, background: 'transparent', transition: 'background 0.1s' }}
+            onMouseDown={startDividerDrag}
+            onMouseEnter={e => e.currentTarget.style.background = '#0073ea44'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          />
+
           {/* Timeline column */}
-          <div style={{ position: 'relative', width: totalWidth, height: totalContentHeight }}>
-            {/* Weekend shading */}
-            {weekendShading}
-            {/* Holiday shading */}
-            {holidayShading}
-            {/* Row grid lines */}
-            {rowGridLines}
-            {/* Today line */}
-            {todayLineEl}
-            {/* Bars (SVG overlay) */}
-            <svg
-              style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 3 }}
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              {flatRows.map((row, idx) => renderBar(row, idx))}
-            </svg>
-            {/* Row highlight on hover (transparent clickable row zones) */}
-            {flatRows.map((row, idx) => {
-              const isSelected = selectedKey === row.key;
-              const isHovered  = hoveredKey === row.key;
-              return (
-                <div
-                  key={`zone-${row.key}`}
-                  style={{
-                    position: 'absolute', left: 0, top: idx * ROW_HEIGHT,
-                    width: totalWidth, height: ROW_HEIGHT,
-                    background: isSelected ? 'rgba(222,235,255,0.15)' : isHovered ? 'rgba(0,0,0,0.02)' : 'transparent',
-                    pointerEvents: 'auto', cursor: 'default',
-                    zIndex: 2,
-                  }}
-                  onClick={() => setSelectedKey(row.key)}
-                  onMouseEnter={() => setHoveredKey(row.key)}
-                  onMouseLeave={() => setHoveredKey(null)}
-                />
-              );
-            })}
-          </div>
+          {showTimeline && (
+            <div style={{ position: 'relative', width: totalWidth, height: totalContentHeight }}>
+              {/* Weekend shading */}
+              {weekendShading}
+              {/* Holiday shading */}
+              {holidayShading}
+              {/* Row grid lines */}
+              {rowGridLines}
+              {/* Today line */}
+              {todayLineEl}
+              {/* Bars (SVG overlay) */}
+              <svg
+                style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 3 }}
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                {flatRows.map((row, idx) => renderBar(row, idx))}
+              </svg>
+              {/* Row highlight on hover (transparent clickable row zones) */}
+              {flatRows.map((row, idx) => {
+                const isSelected = selectedKey === row.key;
+                const isHovered  = hoveredKey === row.key;
+                return (
+                  <div
+                    key={`zone-${row.key}`}
+                    style={{
+                      position: 'absolute', left: 0, top: idx * ROW_HEIGHT,
+                      width: totalWidth, height: ROW_HEIGHT,
+                      background: isSelected ? 'rgba(222,235,255,0.15)' : isHovered ? 'rgba(0,0,0,0.02)' : 'transparent',
+                      pointerEvents: 'auto', cursor: 'default',
+                      zIndex: 2,
+                    }}
+                    onClick={() => setSelectedKey(row.key)}
+                    onMouseEnter={() => setHoveredKey(row.key)}
+                    onMouseLeave={() => setHoveredKey(null)}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -588,12 +670,12 @@ const s = {
     justifyContent: 'center', gap: '10px', color: '#6B778C',
   },
 
-  // ── Tree header (sticky top-left corner) ──
+  // ── Tree header (sticky top-left corner) — width set dynamically ──
   treeHeader: {
-    position: 'absolute', left: 0, top: 0, width: TREE_WIDTH,
+    position: 'absolute', left: 0, top: 0,
     height: HEADER_HEIGHT, zIndex: 12,
-    background: '#F4F5F7', borderBottom: '2px solid #e6e9ef', borderRight: '2px solid #e6e9ef',
-    display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px',
+    background: '#fff', borderBottom: '2px solid #e6e9ef', borderRight: '2px solid #e6e9ef',
+    display: 'flex', alignItems: 'center', gap: 0,
     boxSizing: 'border-box',
   },
   treeHeaderLabel: {
@@ -601,17 +683,33 @@ const s = {
     textTransform: 'uppercase', letterSpacing: '0.4px',
   },
   treeHeaderStats: {
-    fontSize: '11px', color: '#97A0AF', flex: 1,
+    fontSize: '11px', color: '#97A0AF',
   },
   expandCollapseBtn: {
     background: '#fff', border: '1px solid #DFE1E6', borderRadius: '4px',
     padding: '3px 8px', cursor: 'pointer', fontSize: '10px', fontWeight: 600,
     color: '#323338', flexShrink: 0,
   },
+  fieldColHeader: {
+    width: FIELD_COL_WIDTH, flexShrink: 0,
+    padding: '0 8px', fontSize: '10px', fontWeight: 700, color: '#6B778C',
+    textTransform: 'uppercase', letterSpacing: '0.4px',
+    borderLeft: '1px solid #e6e9ef', height: '100%',
+    display: 'flex', alignItems: 'center',
+    whiteSpace: 'nowrap', overflow: 'hidden',
+  },
+  fieldCell: {
+    width: FIELD_COL_WIDTH, flexShrink: 0,
+    padding: '0 8px', fontSize: '11px', color: '#42526E',
+    borderLeft: '1px solid #f0f1f3',
+    display: 'flex', alignItems: 'center',
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+    height: '100%',
+  },
 
-  // ── Timeline header (sticky top, right of tree header) ──
+  // ── Timeline header (sticky top, right of tree header) — left set dynamically ──
   timelineHeaderWrap: {
-    position: 'absolute', left: TREE_WIDTH, top: 0, right: 0,
+    position: 'absolute', top: 0, right: 0,
     height: HEADER_HEIGHT, overflowX: 'hidden',
     background: '#fff', borderBottom: '2px solid #e6e9ef', zIndex: 11,
   },
@@ -622,9 +720,9 @@ const s = {
     overflowY: 'auto', overflowX: 'auto',
   },
 
-  // ── Tree column (sticky left inside body) ──
+  // ── Tree column (sticky left inside body) — width set dynamically ──
   treeColumn: {
-    width: TREE_WIDTH, flexShrink: 0,
+    flexShrink: 0,
     position: 'sticky', left: 0, zIndex: 6,
     background: '#fff', borderRight: '2px solid #e6e9ef',
   },
@@ -637,9 +735,9 @@ const s = {
     boxSizing: 'border-box',
   },
   toggle: {
-    cursor: 'pointer', fontSize: '11px', color: '#6B778C', width: 14,
+    cursor: 'pointer', fontSize: '13px', color: '#42526E', width: 20,
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    userSelect: 'none', flexShrink: 0,
+    userSelect: 'none', flexShrink: 0, padding: '2px',
   },
   keyBadge: {
     background: '#DEEBFF', color: '#0747A6', borderRadius: '3px',

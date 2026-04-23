@@ -1,14 +1,15 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import GanttBar from './GanttBar';
 import EventBar from './EventBar';
+import { C, T } from '../tokens';
 
-const LEFT_WIDTH    = 260;
-const DAY_WIDTH     = 38;
-const GROUP_HEIGHT  = 36;
-const SUB_HEIGHT    = 46;
-const ITEM_HEIGHT   = 44;
-const HEADER_HEIGHT = 62;
-const BAR_PADDING   = 6;
+const LEFT_WIDTH      = 260;
+const DAY_WIDTH       = 38;
+const GROUP_HEIGHT    = 36;
+const SUB_HEIGHT      = 22;   // compact sub-group label strip
+const ITEM_HEIGHT     = 44;
+const HEADER_HEIGHT   = 62;
+const BAR_PADDING     = 6;
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -29,6 +30,14 @@ function getSquadColor(name) {
     _squadColorMap.set(name, SQUAD_COLORS[_squadColorMap.size % SQUAD_COLORS.length]);
   }
   return _squadColorMap.get(name);
+}
+
+const _subColorMap = new Map();
+function getSubColor(name) {
+  if (!_subColorMap.has(name)) {
+    _subColorMap.set(name, SQUAD_COLORS[_subColorMap.size % SQUAD_COLORS.length]);
+  }
+  return _subColorMap.get(name);
 }
 
 function parseDate(str) {
@@ -69,7 +78,7 @@ function getItemDates(item, sdf, edf) {
   }
   let s = parseDate(item.fields[sdf]);
   let e = parseDate(item.fields[edf]);
-  if (!s && !e) { const r = new Date(); s = addDays(r, -3); e = addDays(r, 3); }
+  if (!s && !e) { const r = new Date(); r.setHours(0,0,0,0); s = r; e = addDays(r, 2); }
   if (!s) s = addDays(e, -7);
   if (!e) e = addDays(s, 7);
   return { s, e };
@@ -85,23 +94,32 @@ function computeRollup(items, sdf, edf) {
   return { s: minS, e: maxE };
 }
 
-function groupItems(issues, events, f1, f2) {
-  const g = {};
-  for (const iss of issues) {
-    const g1 = getFieldValue(iss.fields, f1) || 'None';
-    const g2 = getFieldValue(iss.fields, f2) || 'None';
-    if (!g[g1]) g[g1] = {};
-    if (!g[g1][g2]) g[g1][g2] = [];
-    g[g1][g2].push({ ...iss, _type: 'jira' });
+// Build a nested grouping structure for N levels.
+// Returns either an array of leaf items (at depth === fields.length)
+// or an object mapping group key -> nested structure.
+function groupItemsN(items, fields, depth) {
+  if (depth >= fields.length) return items;
+  const f = fields[depth];
+  const groups = {};
+  for (const item of items) {
+    const key = item._type === 'custom'
+      ? (item.groupValues?.[f] ?? (depth === 0 ? (item.squad ?? 'No Squad') : (item.developer ?? 'Unassigned')))
+      : (getFieldValue(item.fields, f) || 'None');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(item);
   }
-  for (const evt of (events || [])) {
-    const g1 = evt.groupValues?.[f1] ?? evt.squad ?? 'No Squad';
-    const g2 = evt.groupValues?.[f2] ?? evt.developer ?? 'Unassigned';
-    if (!g[g1]) g[g1] = {};
-    if (!g[g1][g2]) g[g1][g2] = [];
-    g[g1][g2].push({ ...evt, _type: 'custom' });
+  // Recursively group each bucket
+  const result = {};
+  for (const key of Object.keys(groups)) {
+    result[key] = groupItemsN(groups[key], fields, depth + 1);
   }
-  return g;
+  return result;
+}
+
+const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtShort(d) {
+  if (!d) return '';
+  return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
 function RollupBar({ s, e, bufferStart, totalDays, color, height }) {
@@ -151,10 +169,8 @@ function packItems(items, sdf, edf) {
     return { item, s, e };
   });
 
-  // Keep original array order — don't re-sort by date.
-  // This prevents issues from jumping to a new position after drag-to-move.
-  // The API returns issues sorted by ORDER BY, so initial load is ordered.
-  // Drag changes dates in-place without re-fetch, so order stays stable.
+  // Sort by start date so items fill earlier lanes optimally.
+  dated.sort((a, b) => a.s - b.s);
 
   const lanes = [];     // each lane = array of items
   const laneEnds = [];  // max end date per lane
@@ -175,29 +191,35 @@ function packItems(items, sdf, edf) {
 
 export default function GanttChart({
   issues, customEvents, today,
-  groupByField1, groupByField2, groupByField1Label, groupByField2Label,
+  groupByFields,
+  availableFields,
   startDateField, endDateField,
   scrollToTarget, onVisibleMonthChange,
   onEditEvent, onDeleteEvent, onUpdateEvent, onUpdateIssue, onCreateEvent,
-  onPreviewIssue, previewFields, availableFields,
+  onPreviewIssue, previewFields,
   showCriticalPath,
   activeBaseline,
   holidays,
+  onDeleteLink, onCreateLink, onFieldUpdate, getIssueDates,
 }) {
   const scrollRef     = useRef(null);
   const lastMonthRef  = useRef(null);
-  const [collapsedGroups, setCollapsedGroups] = useState(new Set());
-  const [collapsedSubs, setCollapsedSubs]     = useState(new Set());
+  const [collapsedKeys, setCollapsedKeys] = useState(new Set());
   const [createDrag, setCreateDrag]           = useState(null);
+  const [linkDrag, setLinkDrag]               = useState(null);
+  const [draggingKey, setDraggingKey]         = useState(null);
+  const linkTargetRef                         = useRef(null);
+  const linkSvgRef                            = useRef(null);
+  const linkDragStateRef                      = useRef(null);
   const hoverHighlightRef                     = useRef(null);
   const rafScrollRef                          = useRef(null);
   // Visible day range for day-cell rendering (performance)
   const [visRange, setVisRange] = useState({ from: 0, to: 160 });
 
-  const sdf = startDateField || 'customfield_10015';
-  const edf = endDateField   || 'duedate';
-  const f1  = groupByField1  || 'labels';
-  const f2  = groupByField2  || 'assignee';
+  const sdf    = startDateField || 'customfield_10015';
+  const edf    = endDateField   || 'duedate';
+  const fields = (groupByFields && groupByFields.length > 0) ? groupByFields : ['labels', 'assignee'];
+  const fieldLabel = (id) => (availableFields || []).find(f => f.id === id)?.name || id;
 
   // Fixed 4-year buffer centered around today.
   // Memoized on year so dependent useMemos (dependency arrows, etc.) don't
@@ -221,9 +243,13 @@ export default function GanttChart({
   // Scroll to target when it changes (navigation arrows / Today button)
   useEffect(() => {
     if (!scrollToTarget || !scrollRef.current) return;
-    const focusDate = new Date(scrollToTarget.year, scrollToTarget.month, 1);
-    const off = Math.max(0, daysBetween(bufferStart, focusDate)) * DAY_WIDTH;
-    scrollRef.current.scrollLeft = off;
+    if (scrollToTarget.today) {
+      scrollRef.current.scrollLeft = Math.max(0, todayOff - 100);
+    } else {
+      const focusDate = new Date(scrollToTarget.year, scrollToTarget.month, 1);
+      const off = Math.max(0, daysBetween(bufferStart, focusDate)) * DAY_WIDTH;
+      scrollRef.current.scrollLeft = off;
+    }
   }, [scrollToTarget]);
 
   // Scroll to today on initial mount
@@ -276,41 +302,69 @@ export default function GanttChart({
   }, [totalDays]);
 
   // Memoize grouped + rows — only recompute when data/collapse state changes, not on scroll
-  const grouped    = useMemo(() => groupItems(issues, customEvents || [], f1, f2), [issues, customEvents, f1, f2]);
-  const groupNames = useMemo(() => Object.keys(grouped).sort(), [grouped]);
+  const allItems = useMemo(() => [
+    ...issues.map(iss => ({ ...iss, _type: 'jira' })),
+    ...(customEvents || []).map(evt => ({ ...evt, _type: 'custom' })),
+  ], [issues, customEvents]);
+
+  const grouped = useMemo(() => groupItemsN(allItems, fields, 0), [allItems, fields]);
 
   const rows = useMemo(() => {
     const r = [];
-    for (const g1 of groupNames) {
-      const color    = getSquadColor(g1);
-      const allItems = Object.values(grouped[g1]).flat();
-      const rollup   = computeRollup(allItems, sdf, edf);
-      r.push({ type: 'group', g1, color, rollup, count: allItems.length });
-      if (!collapsedGroups.has(g1)) {
-        const subNames = Object.keys(grouped[g1]).sort();
-        for (const g2 of subNames) {
-          const items  = grouped[g1][g2];
-          const subKey = `${g1}||${g2}`;
-          const subRoll = computeRollup(items, sdf, edf);
-          r.push({ type: 'sub', g1, g2, color, rollup: subRoll, count: items.length, subKey });
-          if (!collapsedSubs.has(subKey)) {
-            const lanes = packItems(items, sdf, edf);
-            for (const laneItems of lanes) {
-              r.push({ type: 'lane', g1, g2, color, items: laneItems, subKey });
-            }
+
+    // Recursively flatten nested group structure into rows
+    function flatten(node, depth, pathKey, color) {
+      if (Array.isArray(node)) {
+        // Leaf: array of items → pack into lanes
+        const lanes = packItems(node, sdf, edf);
+        for (const laneItems of lanes) {
+          r.push({ type: 'lane', depth, pathKey, color, items: laneItems });
+        }
+        return;
+      }
+      // Object: iterate sorted keys
+      const keys = Object.keys(node).sort();
+      for (const key of keys) {
+        const childPath = pathKey ? `${pathKey}||${key}` : key;
+        if (depth === 0) {
+          const rowColor = getSquadColor(key);
+          function collectLeaves(n) {
+            if (Array.isArray(n)) return n;
+            return Object.values(n).flatMap(collectLeaves);
+          }
+          const nodeItems = collectLeaves(node[key]);
+          const rollup = computeRollup(nodeItems, sdf, edf);
+          r.push({ type: 'groupHeader', depth: 0, key, pathKey: childPath, color: rowColor, rollup, count: nodeItems.length, label: key });
+          if (!collapsedKeys.has(childPath)) {
+            flatten(node[key], depth + 1, childPath, rowColor);
+          }
+        } else {
+          // depth ≥ 1: compact label strip, colored by sub-group key
+          const subColor = getSubColor(key);
+          function collectLeaves2(n) {
+            if (Array.isArray(n)) return n;
+            return Object.values(n).flatMap(collectLeaves2);
+          }
+          const nodeItems2 = collectLeaves2(node[key]);
+          const rollup2 = computeRollup(nodeItems2, sdf, edf);
+          r.push({ type: 'groupHeader', depth: 1, key, pathKey: childPath, color: subColor, rollup: rollup2, count: nodeItems2.length, label: key });
+          if (!collapsedKeys.has(childPath)) {
+            flatten(node[key], depth + 1, childPath, subColor);
           }
         }
       }
     }
+
+    flatten(grouped, 0, '', null);
     return r;
-  }, [grouped, groupNames, collapsedGroups, collapsedSubs, sdf, edf]);
+  }, [grouped, collapsedKeys, sdf, edf, fields]);
 
   // ── Dependency arrows: position map + arrow data ──────────────────────────
   const { depArrows, totalRowsHeight } = useMemo(() => {
     const map = {};
     let cumulY = 0;
     for (const row of rows) {
-      const rowH = row.type === 'group' ? GROUP_HEIGHT : row.type === 'sub' ? SUB_HEIGHT : ITEM_HEIGHT;
+      const rowH = row.type === 'groupHeader' ? (row.depth === 0 ? GROUP_HEIGHT : SUB_HEIGHT) : ITEM_HEIGHT;
       if (row.type === 'lane') {
         for (const item of row.items) {
           if (item._type !== 'jira') continue;
@@ -369,7 +423,7 @@ export default function GanttChart({
     const inDegree = {};
     const duration = {};
 
-    // Collect all jira items from rows that are in the position map
+    // Collect all jira items from lane rows
     for (const row of rows) {
       if (row.type !== 'lane') continue;
       for (const item of row.items) {
@@ -485,21 +539,18 @@ export default function GanttChart({
           const isCriticalArrow = showCriticalPath && criticalPathSet.has(a.predKey) && criticalPathSet.has(a.succKey);
           let color, sw;
           if (isCriticalArrow && a.violated) {
-            // Critical-and-violated: more saturated red, thickest stroke
-            color = '#BF2040';
-            sw = 3;
+            color = C.critical;
+            sw = 2;
           } else if (isCriticalArrow) {
-            // Critical-and-fine: red, thick stroke
-            color = '#E2445C';
-            sw = 2.5;
+            color = C.critical;
+            sw = 1.5;
           } else if (a.violated) {
-            // Violated but not critical: existing red
-            color = '#E2445C';
+            color = C.critical;
             sw = 1.5;
           } else {
-            // Normal: gray
-            color = '#6B778C';
-            sw = 1.5;
+            // Normal: ink4
+            color = C.ink4;
+            sw = 1;
           }
           const x1 = a.predEndX;
           const y1 = a.predMidY;
@@ -515,7 +566,7 @@ export default function GanttChart({
           // Arrowhead always points right (into successor's left edge)
           const ah = `${tipX} ${y2 - ARROW_SIZE / 2}, ${tipX + ARROW_SIZE} ${y2}, ${tipX} ${y2 + ARROW_SIZE / 2}`;
           return (
-            <g key={i}>
+            <g key={i} opacity={isCriticalArrow || a.violated ? 1 : 0.55}>
               <path d={d} fill="none" stroke={color} strokeWidth={sw} strokeLinejoin="round" />
               <polygon points={ah} fill={color} />
             </g>
@@ -525,11 +576,8 @@ export default function GanttChart({
     );
   }, [depArrows, totalWidth, totalRowsHeight, showCriticalPath, criticalPathSet]);
 
-  function toggleGroup(g1) {
-    setCollapsedGroups(prev => { const n = new Set(prev); n.has(g1) ? n.delete(g1) : n.add(g1); return n; });
-  }
-  function toggleSub(key) {
-    setCollapsedSubs(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  function toggleKey(key) {
+    setCollapsedKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
 
   // Click-to-create drag — uses bufferStart
@@ -550,11 +598,55 @@ export default function GanttChart({
     el.style.left = (day * DAY_WIDTH) + 'px';
   }
 
-  function handleBgMouseDown(e, g1, g2) {
+  function handleLinkDragStart(sourceKey, direction, startX, startY) {
+    // Show SVG overlay via state (just to mount the element)
+    setLinkDrag({ x1: startX, y1: startY, x2: startX, y2: startY });
+    linkDragStateRef.current = { x1: startX, y1: startY };
+    linkTargetRef.current = null;
+
+    const onMove = (ev) => {
+      // Update SVG directly via ref — no React re-render, 60fps smooth
+      if (linkSvgRef.current) {
+        const line = linkSvgRef.current.querySelector('line');
+        const circle = linkSvgRef.current.querySelector('circle');
+        if (line) {
+          line.setAttribute('x2', ev.clientX);
+          line.setAttribute('y2', ev.clientY);
+        }
+        if (circle) {
+          circle.setAttribute('cx', ev.clientX);
+          circle.setAttribute('cy', ev.clientY);
+        }
+      }
+      const els = document.elementsFromPoint(ev.clientX, ev.clientY);
+      const barEl = els.find(el => el.dataset?.issueKey);
+      linkTargetRef.current = barEl ? barEl.dataset.issueKey : null;
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const target = linkTargetRef.current;
+      setLinkDrag(null);
+      linkTargetRef.current = null;
+      linkDragStateRef.current = null;
+      if (target && target !== sourceKey && onCreateLink) {
+        // direction 'inward' means sourceKey is blocked by target → target blocks sourceKey
+        if (direction === 'inward') {
+          onCreateLink(target, sourceKey);
+        } else {
+          onCreateLink(sourceKey, target);
+        }
+      }
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  function handleBgMouseDown(e, pathKey) {
     if (e.button !== 0) return;
     e.preventDefault();
     const startDay = getDay(e.clientX);
-    setCreateDrag({ g1, g2, startDay, curDay: startDay });
+    setCreateDrag({ pathKey, startDay, curDay: startDay });
 
     const onMove = (ev) => setCreateDrag(p => p ? { ...p, curDay: getDay(ev.clientX) } : null);
     const onUp   = (ev) => {
@@ -564,10 +656,13 @@ export default function GanttChart({
       const lo = Math.min(startDay, endDay), hi = Math.max(startDay, endDay);
       setCreateDrag(null);
       if (onCreateEvent) {
+        // Pass g1/g2 from pathKey parts for backward compat with EventModal
+        const parts = pathKey.split('||');
         onCreateEvent({
           startDate: fmtISODate(addDays(bufferStart, lo)),
           endDate:   fmtISODate(addDays(bufferStart, hi)),
-          g1, g2,
+          g1: parts[0] || '',
+          g2: parts[1] || '',
         });
       }
     };
@@ -586,7 +681,7 @@ export default function GanttChart({
       if (mo !== mMo) {
         if (mMo !== -1) {
           monthEls.push(
-            <div key={`m-${mStart}`} style={{ ...styles.weekLabel, left: mStart * DAY_WIDTH, width: (i - mStart) * DAY_WIDTH, fontWeight: 700, fontSize: '11px', color: mYear === today.getFullYear() ? '#323338' : '#c3c6d4' }}>
+            <div key={`m-${mStart}`} style={{ ...styles.weekLabel, left: mStart * DAY_WIDTH, width: (i - mStart) * DAY_WIDTH, fontWeight: 600, fontSize: '11px', color: C.ink2 }}>
               {MONTH_NAMES[mMo].slice(0, 3)} {mYear !== today.getFullYear() ? mYear : ''}
             </div>
           );
@@ -604,16 +699,23 @@ export default function GanttChart({
       const holidayName = holidaySet.get(fmtISODate(d));
       const isHoliday = !!holidayName;
       // Day cell absolute-positioned at its correct offset
+      const DOW = ['S','M','T','W','T','F','S'];
       dayEls.push(
         <div key={i} title={isHoliday ? holidayName : undefined} style={{
           ...styles.dayCell, left: i * DAY_WIDTH,
-          background: isToday ? '#0073ea' : isHoliday ? '#FFE0E6' : 'transparent',
-          fontWeight: isToday ? 700 : 400,
-          color: isToday ? '#fff' : isHoliday ? '#BF2040' : isWeekend ? '#c3c6d4' : '#676879',
-          borderRadius: isToday ? '6px' : isHoliday ? '6px' : '0',
+          background: 'transparent',
         }}>
-          <div style={styles.dayName}>{['Su','Mo','Tu','We','Th','Fr','Sa'][d.getDay()]}</div>
-          <div style={styles.dayNum}>{d.getDate()}</div>
+          <div style={{ ...styles.dayName, color: isWeekend ? C.line : C.ink4 }}>{DOW[d.getDay()]}</div>
+          {isToday ? (
+            <div style={{
+              width: 16, height: 16, borderRadius: '50%',
+              background: C.primary, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '10.5px', fontWeight: 700, lineHeight: 1,
+            }}>{d.getDate()}</div>
+          ) : (
+            <div style={{ ...styles.dayNum, color: isHoliday ? C.accent : isWeekend ? C.ink4 : C.ink3 }}>{d.getDate()}</div>
+          )}
         </div>
       );
     }
@@ -627,7 +729,7 @@ export default function GanttChart({
           display: 'none',
           position: 'absolute', top: 0,
           width: DAY_WIDTH, height: HEADER_HEIGHT,
-          background: '#0073ea22',
+          background: `${C.primary}18`,
           borderRadius: 4,
           pointerEvents: 'none', zIndex: 20,
         }} />
@@ -644,7 +746,7 @@ export default function GanttChart({
         if (d.getDay() === 0 || d.getDay() === 6) {
           // Skip weekend shading for days that are also holidays (holiday takes priority)
           if (!holidaySet.has(fmtISODate(d))) {
-            out.push(<div key={i} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: '#f8f8fb', pointerEvents: 'none' }} />);
+            out.push(<div key={i} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: C.weekend, pointerEvents: 'none' }} />);
           }
         }
       }
@@ -661,7 +763,7 @@ export default function GanttChart({
       for (let i = visRange.from; i <= visRange.to && i < totalDays; i++) {
         const d = addDays(bufferStart, i);
         if (holidaySet.has(fmtISODate(d))) {
-          out.push(<div key={`h${i}`} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: '#FFEBEE', pointerEvents: 'none' }} />);
+          out.push(<div key={`h${i}`} style={{ position: 'absolute', left: i * DAY_WIDTH, top: 0, width: DAY_WIDTH, height: rowH, background: C.holiday, pointerEvents: 'none' }} />);
         }
       }
       return out;
@@ -671,7 +773,11 @@ export default function GanttChart({
 
   const todayLineEl = useMemo(() =>
     todayOff >= 0 && todayOff <= totalWidth
-      ? <div style={{ ...styles.todayLine, left: todayOff }} />
+      ? (
+        <div style={{ position: 'absolute', top: 0, bottom: 0, left: todayOff, width: 0, zIndex: 4, pointerEvents: 'none' }}>
+          <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: '1.5px', background: C.amber }} />
+        </div>
+      )
       : null,
   [todayOff, totalWidth]);
 
@@ -686,21 +792,28 @@ export default function GanttChart({
     );
   }
 
-  const headerLabel = `${(groupByField1Label || f1).toUpperCase()} / ${(groupByField2Label || f2).toUpperCase()}`;
+  const headerLabel = fields.map(f => fieldLabel(f).toUpperCase()).join(' / ');
 
   return (
     <div style={styles.outer}>
+      {/* Rubber-band dependency line during drag — DOM-mutated directly for 60fps */}
+      {linkDrag && (
+        <svg ref={linkSvgRef} style={{ position: 'fixed', inset: 0, width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 9999 }}>
+          <line x1={linkDrag.x1} y1={linkDrag.y1} x2={linkDrag.x1} y2={linkDrag.y1} stroke="#0073ea" strokeWidth={2} strokeDasharray="6,3" />
+          <circle cx={linkDrag.x1} cy={linkDrag.y1} r={5} fill="#0073ea" opacity={0.8} />
+        </svg>
+      )}
       {/* Left header */}
       <div style={styles.leftHeader}>
-        <span style={{ fontWeight: 700, fontSize: '11px', color: '#676879', letterSpacing: '0.3px', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerLabel}</span>
-        <span style={{ fontSize: '11px', color: '#97A0AF', flexShrink: 0, marginLeft: '6px' }}>
+        <span style={{ fontWeight: 600, fontSize: '11px', color: C.ink4, letterSpacing: '0.3px', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{headerLabel}</span>
+        <span style={{ fontSize: '11px', color: C.ink4, flexShrink: 0, marginLeft: '6px' }}>
           {issues.length} issue{issues.length !== 1 ? 's' : ''}
           {(customEvents || []).length > 0 ? ` · ${customEvents.length} event${customEvents.length !== 1 ? 's' : ''}` : ''}
         </span>
       </div>
 
       {/* Timeline header (scrolls in sync with body) */}
-      <div style={{ position: 'absolute', left: LEFT_WIDTH, top: 0, right: 0, height: HEADER_HEIGHT, overflowX: 'hidden', background: '#fff', borderBottom: '2px solid #e6e9ef', zIndex: 10 }} id="gantt-header-scroll">
+      <div style={{ position: 'absolute', left: LEFT_WIDTH, top: 0, right: 0, height: HEADER_HEIGHT, overflowX: 'hidden', background: C.bg, borderBottom: `1px solid ${C.line}`, zIndex: 10 }} id="gantt-header-scroll">
         {renderHeader()}
       </div>
 
@@ -716,42 +829,44 @@ export default function GanttChart({
         <div style={{ display: 'flex', minWidth: LEFT_WIDTH + totalWidth }}>
 
           {/* Sticky left column */}
-          <div style={{ width: LEFT_WIDTH, flexShrink: 0, position: 'sticky', left: 0, zIndex: 5, background: '#fff', borderRight: '2px solid #e6e9ef' }}>
+          <div style={{ width: LEFT_WIDTH, flexShrink: 0, position: 'sticky', left: 0, zIndex: 5, background: C.bg, borderRight: `1px solid ${C.line}` }}>
             {rows.map((row, idx) => {
-              if (row.type === 'group') {
+              if (row.type === 'groupHeader') {
                 const col = row.color;
-                return (
-                  <div key={`lG-${row.g1}`}
-                    style={{ height: GROUP_HEIGHT, display: 'flex', alignItems: 'center', gap: '6px', padding: '0 10px', background: col.bg, borderLeft: `4px solid ${col.border}`, color: col.text, cursor: 'pointer', borderBottom: `1px solid ${col.border}30`, userSelect: 'none', overflow: 'hidden' }}
-                    onClick={() => toggleGroup(row.g1)}
-                  >
-                    <span style={{ fontSize: '9px', flexShrink: 0 }}>{collapsedGroups.has(row.g1) ? '▶' : '▼'}</span>
-                    <span style={{ fontWeight: 700, fontSize: '11px', letterSpacing: '0.4px', textTransform: 'uppercase', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.g1}</span>
-                    <span style={{ fontSize: '11px', fontWeight: 600, background: col.border + '22', borderRadius: '10px', padding: '1px 7px', flexShrink: 0, color: col.text }}>{row.count}</span>
-                  </div>
-                );
-              }
-              if (row.type === 'sub') {
-                const col = row.color;
-                const isCol = collapsedSubs.has(row.subKey);
-                return (
-                  <div key={`lS-${row.g1}-${row.g2}`}
-                    style={{ height: SUB_HEIGHT, display: 'flex', alignItems: 'center', gap: '8px', padding: '0 10px 0 18px', background: '#fff', borderLeft: `3px solid ${col.border}55`, borderBottom: '1px solid #f0f1f3', cursor: 'pointer', userSelect: 'none', overflow: 'hidden' }}
-                    onClick={() => toggleSub(row.subKey)}
-                  >
-                    <span style={{ fontSize: '9px', color: '#6B778C', flexShrink: 0 }}>{isCol ? '▶' : '▼'}</span>
-                    <div style={{ width: 26, height: 26, borderRadius: '50%', background: col.border, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, flexShrink: 0 }}>
-                      {row.g2.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                const isCol = collapsedKeys.has(row.pathKey);
+                const isDepth0 = row.depth === 0;
+                const rowH = isDepth0 ? GROUP_HEIGHT : SUB_HEIGHT;
+                if (isDepth0) {
+                  return (
+                    <div key={`lH-${row.pathKey}`}
+                      style={{ height: rowH, display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: 12, paddingRight: '10px', background: C.bgSunken, borderBottom: `1px solid ${C.line2}`, cursor: 'pointer', userSelect: 'none', overflow: 'hidden' }}
+                      onClick={() => toggleKey(row.pathKey)}
+                    >
+                      <span style={{ fontSize: '12px', fontWeight: 600, color: C.ink, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
+                      <span style={{ fontSize: '11px', color: C.ink4, flexShrink: 0 }}>{row.count}</span>
+                      <span style={{ fontSize: '10px', color: C.ink4, flexShrink: 0, display: 'inline-block', transform: isCol ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▾</span>
                     </div>
-                    <span style={{ fontSize: '13px', fontWeight: 600, flex: 1, color: '#323338', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.g2}</span>
-                    <span style={{ fontSize: '11px', color: '#c3c6d4', flexShrink: 0 }}>{row.count}</span>
+                  );
+                }
+                // depth ≥ 1: compact colored label strip
+                const dateRange = row.rollup?.s && row.rollup?.e
+                  ? `${fmtShort(row.rollup.s)} – ${fmtShort(row.rollup.e)}`
+                  : null;
+                return (
+                  <div key={`lH-${row.pathKey}`}
+                    style={{ height: rowH, display: 'flex', alignItems: 'center', background: `${col.bg}99`, borderBottom: `1px solid ${col.border}30`, borderLeft: `3px solid ${col.border}`, paddingLeft: 10, paddingRight: 8, cursor: 'pointer', userSelect: 'none', overflow: 'hidden', gap: 4 }}
+                    onClick={() => toggleKey(row.pathKey)}
+                  >
+                    <span style={{ fontSize: '10.5px', fontWeight: 600, color: col.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>{row.label}</span>
+                    {dateRange && <span style={{ fontSize: '9.5px', color: col.text, opacity: 0.65, flexShrink: 0, whiteSpace: 'nowrap' }}>{dateRange}</span>}
+                    <span style={{ fontSize: '9px', color: col.text, opacity: 0.6, flexShrink: 0, display: 'inline-block', transform: isCol ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>▾</span>
                   </div>
                 );
               }
               // lane row — left column is empty (item info is on the bars)
               return (
-                <div key={`lL-${row.g1}-${row.g2}-${idx}`}
-                  style={{ height: ITEM_HEIGHT, background: idx % 2 === 0 ? '#fff' : '#fafbfd', borderLeft: `2px solid ${row.color.border}30`, borderBottom: '1px solid #f4f5f7' }}
+                <div key={`lL-${row.pathKey}-${idx}`}
+                  style={{ height: ITEM_HEIGHT, background: C.bg, borderBottom: `1px solid ${C.line2}` }}
                 />
               );
             })}
@@ -759,42 +874,34 @@ export default function GanttChart({
 
           {/* Timeline body */}
           <div style={{ width: totalWidth, flexShrink: 0, position: 'relative' }}>
-            {depArrowsSvg}
+            {!draggingKey && depArrowsSvg}
             {rows.map((row, idx) => {
-              if (row.type === 'group') {
+              if (row.type === 'groupHeader') {
+                const isDepth0 = row.depth === 0;
+                const rowH = isDepth0 ? GROUP_HEIGHT : SUB_HEIGHT;
+                const bg = isDepth0 ? C.bgSunken : `${row.color.bg}60`;
+                const borderCol = isDepth0 ? C.line2 : `${row.color.border}30`;
                 return (
-                  <div key={`rG-${row.g1}`} style={{ position: 'relative', height: GROUP_HEIGHT, background: row.color.bg, borderBottom: `1px solid ${row.color.border}20`, opacity: 0.8 }}>
-                    {weekendShadingByHeight.group}
-                    {holidayShadingByHeight.group}
-                    {todayLineEl}
-                    <RollupBar s={row.rollup.s} e={row.rollup.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={10} />
-                  </div>
-                );
-              }
-              if (row.type === 'sub') {
-                return (
-                  <div key={`rS-${row.g1}-${row.g2}`} style={{ position: 'relative', height: SUB_HEIGHT, background: '#fff', borderBottom: '1px solid #f0f1f3' }}
-                    onMouseDown={(e) => handleBgMouseDown(e, row.g1, row.g2)}
+                  <div key={`rH-${row.pathKey}`} style={{ position: 'relative', height: rowH, background: bg, borderBottom: `1px solid ${borderCol}` }}
+                    onMouseDown={(e) => handleBgMouseDown(e, row.pathKey)}
                   >
-                    {weekendShadingByHeight.sub}
-                    {holidayShadingByHeight.sub}
                     {todayLineEl}
-                    <RollupBar s={row.rollup.s} e={row.rollup.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={8} />
-                    {createDrag?.g1 === row.g1 && createDrag?.g2 === row.g2 && (
-                      <CreatePreview startDay={createDrag.startDay} endDay={createDrag.curDay} color={row.color} rowH={SUB_HEIGHT} />
+                    {isDepth0 && <RollupBar s={row.rollup.s} e={row.rollup.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={10} />}
+                    {!isDepth0 && <RollupBar s={row.rollup?.s} e={row.rollup?.e} bufferStart={bufferStart} totalDays={totalDays} color={row.color} height={5} />}
+                    {createDrag?.pathKey === row.pathKey && (
+                      <CreatePreview startDay={createDrag.startDay} endDay={createDrag.curDay} color={row.color} rowH={rowH} />
                     )}
                   </div>
                 );
               }
               // lane row — may contain multiple non-overlapping bars
-              const bg = idx % 2 === 0 ? '#fff' : '#fafbfd';
-              const laneKey = `rL-${row.g1}-${row.g2}-${idx}`;
+              const laneKey = `rL-${row.pathKey}-${idx}`;
               return (
                 <div key={laneKey}
-                  style={{ position: 'relative', height: ITEM_HEIGHT, background: bg, borderBottom: '1px solid #F4F5F7' }}
+                  style={{ position: 'relative', height: ITEM_HEIGHT, background: C.bg, borderBottom: `1px solid ${C.line2}` }}
                 >
                   <div style={{ position: 'absolute', inset: 0, zIndex: 0, cursor: 'crosshair' }}
-                    onMouseDown={(e) => handleBgMouseDown(e, row.g1, row.g2)}
+                    onMouseDown={(e) => handleBgMouseDown(e, row.pathKey)}
                   />
                   {weekendShadingByHeight.item}
                   {holidayShadingByHeight.item}
@@ -883,9 +990,9 @@ export default function GanttChart({
                   {row.items.map(item =>
                     item._type === 'custom'
                       ? <EventBar key={item.id} event={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} onEdit={onEditEvent} onDelete={onDeleteEvent} onUpdate={onUpdateEvent} />
-                      : <GanttBar key={item.key} issue={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} squadColor={row.color} onUpdate={onUpdateIssue} startDateField={sdf} endDateField={edf} onPreview={onPreviewIssue} previewFields={previewFields} availableFields={availableFields} isCritical={showCriticalPath && criticalPathSet.has(item.key)} />
+                      : <GanttBar key={item.key} issue={item} viewStart={bufferStart} dayWidth={DAY_WIDTH} rowHeight={ITEM_HEIGHT} barPadding={BAR_PADDING} totalDays={totalDays} squadColor={row.color} onUpdate={onUpdateIssue} startDateField={sdf} endDateField={edf} onPreview={onPreviewIssue} previewFields={previewFields} availableFields={availableFields} isCritical={showCriticalPath && criticalPathSet.has(item.key)} onLinkDragStart={handleLinkDragStart} onDeleteLink={onDeleteLink} onFieldUpdate={onFieldUpdate} getIssueDates={getIssueDates} onDragStart={() => setDraggingKey(item.key)} onDragEnd={() => setDraggingKey(null)} />
                   )}
-                  {createDrag?.g1 === row.g1 && createDrag?.g2 === row.g2 && (
+                  {createDrag?.pathKey === row.pathKey && (
                     <CreatePreview startDay={createDrag.startDay} endDay={createDrag.curDay} color={row.color} rowH={ITEM_HEIGHT} />
                   )}
                 </div>
@@ -899,25 +1006,24 @@ export default function GanttChart({
 }
 
 const styles = {
-  outer:      { position: 'relative', flex: 1, overflow: 'hidden', background: '#fafbfd' },
+  outer:      { position: 'relative', flex: 1, overflow: 'hidden', background: C.bg },
   leftHeader: {
     position: 'absolute', left: 0, top: 0, width: LEFT_WIDTH, height: HEADER_HEIGHT,
-    background: '#fff', borderRight: '2px solid #e6e9ef', borderBottom: '2px solid #e6e9ef',
+    background: C.bg, borderRight: `1px solid ${C.line}`, borderBottom: `1px solid ${C.line}`,
     zIndex: 11, display: 'flex', alignItems: 'center', padding: '0 14px',
   },
   weekLabel: {
     position: 'absolute', top: 0, height: 22, display: 'flex', alignItems: 'center',
-    paddingLeft: '8px', fontSize: '11px', fontWeight: 700, color: '#323338',
-    letterSpacing: '0.8px', textTransform: 'uppercase',
-    borderRight: '1px solid #e6e9ef', boxSizing: 'border-box',
+    paddingLeft: '8px', fontSize: '11px', fontWeight: 600, color: C.ink2,
+    letterSpacing: '0.3px',
+    borderRight: `1px solid ${C.line2}`, boxSizing: 'border-box',
   },
   dayCell: {
-    position: 'absolute', top: 2, width: DAY_WIDTH - 2, height: 30,
+    position: 'absolute', top: 4, width: DAY_WIDTH - 2, height: 28,
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    borderRadius: 4, boxSizing: 'border-box', margin: '0 1px',
+    boxSizing: 'border-box', margin: '0 1px',
   },
-  dayName:    { fontSize: '9px', opacity: 0.65, letterSpacing: '0.3px', textTransform: 'uppercase' },
-  dayNum:     { fontWeight: 700, fontSize: '13px', lineHeight: 1 },
-  todayLine:  { position: 'absolute', top: 0, bottom: 0, width: 1, background: '#0073ea', zIndex: 4, pointerEvents: 'none' },
-  emptyState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', color: '#676879', background: '#fafbfd' },
+  dayName:    { fontSize: '8.5px', letterSpacing: '0.3px', textTransform: 'uppercase', lineHeight: 1, marginBottom: 2 },
+  dayNum:     { fontWeight: 400, fontSize: '10.5px', lineHeight: 1 },
+  emptyState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '16px', color: C.ink3, background: C.bg },
 };

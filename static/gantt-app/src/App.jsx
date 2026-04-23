@@ -1,6 +1,23 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { invoke } from '@forge/bridge';
+import React, { useState, useEffect, useCallback, useRef, Component } from 'react';
+
+class ModuleErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, fontFamily: 'sans-serif' }}>
+          <p style={{ color: '#DE350B', fontWeight: 600 }}>Module error: {String(this.state.error)}</p>
+          <pre style={{ fontSize: 11, color: '#6B778C', whiteSpace: 'pre-wrap' }}>{this.state.error?.stack}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+import { invoke, view as forgeView } from '@forge/bridge';
 import GanttChart from './components/GanttChart';
+import IssuePreview from './components/IssuePreview';
 import ListView from './components/ListView';
 // TreeView and RoadmapView are not imported — those view types have been
 // consolidated into the 3 remaining types (Gantt, List, Project).
@@ -12,8 +29,10 @@ import RisksModule from './components/RisksModule';
 import ObjectivesModule from './components/ObjectivesModule';
 import ResourcesModule from './components/ResourcesModule';
 import ReportsModule from './components/ReportsModule';
+import FeatureStatusModule from './components/FeatureStatusModule';
 import EventModal from './components/EventModal';
 import ConfigPanel from './components/ConfigPanel';
+import Toolbar from './components/Toolbar';
 import { getFieldValue } from './utils';
 // GadgetMode is used by the separate gadget build (static/gadget/),
 // not by the main app. No import needed here.
@@ -36,19 +55,153 @@ const DEFAULT_CONFIG = {
   selectedProjects: [],
   statusFilter: 'active',
   jqlFilter: '',
-  groupByField1: 'labels',
-  groupByField2: 'assignee',
+  groupByFields: ['labels', 'assignee'],
   startDateField: 'customfield_10015',
   endDateField: 'duedate',
   listFields: ['summary','status','assignee','customfield_10015','duedate'],
+  previewFields: ['status','priority','assignee','customfield_10015','duedate'],
   viewType: 'timeline',
   orderByField: 'duedate',
   orderByDir: 'ASC',
   eventsOnly: false,
 };
 
+// ── Style objects declared before App() to avoid TDZ in minified bundles ─────
+const shareStyles = {
+  overlay: {
+    position: 'fixed', inset: 0, background: 'rgba(9,30,66,0.54)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
+  },
+  modal: {
+    background: '#fff', borderRadius: '8px', width: '440px', maxWidth: '90vw',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.3)', overflow: 'hidden',
+  },
+  header: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '16px 20px', borderBottom: '1px solid #DFE1E6',
+  },
+  title: { fontWeight: 700, fontSize: '16px', color: '#172B4D' },
+  close: {
+    background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px',
+    color: '#6B778C', width: '28px', height: '28px', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', borderRadius: '4px',
+  },
+  body: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' },
+  desc: { fontSize: '13px', color: '#42526E', margin: 0, lineHeight: 1.5 },
+  urlRow: { display: 'flex', gap: '8px' },
+  urlInput: {
+    flex: 1, border: '1px solid #DFE1E6', borderRadius: '4px', padding: '8px 10px',
+    fontSize: '12px', color: '#172B4D', fontFamily: 'monospace', background: '#F4F5F7',
+    outline: 'none',
+  },
+  copyBtn: {
+    background: '#0052CC', color: '#fff', border: 'none', borderRadius: '4px',
+    padding: '8px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+    flexShrink: 0, minWidth: '70px',
+  },
+  hint: { fontSize: '11px', color: '#97A0AF', margin: 0, fontStyle: 'italic' },
+  viewHint: {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: '#F4F5F7', borderRadius: 4, padding: '8px 12px',
+  },
+  viewHintLabel: { fontSize: '12px', color: '#6B778C' },
+  viewHintName: { fontSize: '13px', fontWeight: 600, color: '#172B4D' },
+};
+
+const styles = {
+  root: {
+    display: 'flex', flexDirection: 'column', height: '100vh',
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+    fontSize: '13px', color: '#15181d', background: '#ffffff',
+  },
+  toolbar: {
+    display: 'flex', alignItems: 'center', gap: '10px', padding: '0 16px',
+    height: '56px', background: '#fff', borderBottom: '1px solid #e6e9ef',
+    flexShrink: 0, flexWrap: 'wrap',
+  },
+  sidebarToggle: {
+    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
+    width: '32px', height: '32px', cursor: 'pointer', fontSize: '14px',
+    color: '#676879', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  appTitle: { fontWeight: 800, fontSize: '15px', color: '#323338', letterSpacing: '-0.3px' },
+  viewName: {
+    fontSize: '13px', color: '#676879', fontWeight: 500,
+    borderLeft: '1px solid #e6e9ef', paddingLeft: '10px',
+    display: 'flex', alignItems: 'center', gap: '5px',
+  },
+  dirtyDot: { color: '#fdab3d', fontSize: '10px', lineHeight: 1 },
+  navGroup: { display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px' },
+  navBtn: {
+    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
+    width: '30px', height: '30px', cursor: 'pointer', fontSize: '16px',
+    color: '#323338', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  monthLabel: { fontWeight: 700, fontSize: '14px', minWidth: '150px', textAlign: 'center', color: '#323338' },
+  todayBtn: {
+    background: '#0073ea', color: '#fff', border: 'none', borderRadius: '6px',
+    padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+    letterSpacing: '0.2px',
+  },
+  toolbarRight: { display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' },
+  addEventBtn: {
+    background: '#0073ea', color: '#fff', border: 'none', borderRadius: '6px',
+    padding: '6px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
+    letterSpacing: '0.2px',
+  },
+  configBtn: {
+    border: '1px solid #e6e9ef', borderRadius: '6px', padding: '5px 12px',
+    cursor: 'pointer', fontSize: '12px', color: '#323338', fontWeight: 600,
+    background: '#fff',
+  },
+  shareLinkBtn: {
+    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
+    padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
+    color: '#676879',
+  },
+  refreshBtn: {
+    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
+    width: '30px', height: '30px', cursor: 'pointer', fontSize: '16px', color: '#676879',
+  },
+  truncationBanner: {
+    background: '#fff3c7', color: '#8a6800', padding: '6px 16px',
+    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px',
+    flexShrink: 0, borderBottom: '1px solid #ffcb00',
+  },
+  layout: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
+  content: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
+  errorBanner: {
+    background: '#ffe1e1', color: '#bf2040', padding: '8px 16px',
+    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', flexShrink: 0,
+  },
+  retryBtn: {
+    background: 'none', border: '1px solid currentColor', borderRadius: '6px',
+    padding: '2px 8px', cursor: 'pointer', fontSize: '11px', color: 'inherit', marginLeft: 'auto',
+  },
+  loadingWrap: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px' },
+  spinner: {
+    width: '28px', height: '28px', borderRadius: '50%',
+    border: '3px solid #e6e9ef', borderTopColor: '#0073ea',
+    animation: 'spin 0.8s linear infinite',
+  },
+  loadingText: { color: '#676879', margin: 0, fontSize: '13px', fontWeight: 500 },
+};
+
 export default function App() {
   const today = new Date();
+
+  // Load Inter font for Cadence design system
+  useEffect(() => {
+    if (!document.getElementById('cadence-fonts')) {
+      const link = document.createElement('link');
+      link.id = 'cadence-fonts';
+      link.rel = 'stylesheet';
+      link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap';
+      document.head.appendChild(link);
+    }
+  }, []);
+
+  const viewsRef = useRef([]);
 
   const [issues, setIssues]                     = useState([]);
   const [customEvents, setCustomEvents]           = useState([]);
@@ -59,6 +212,7 @@ export default function App() {
   const [issuesTruncated, setIssuesTruncated]     = useState(false);
 
   const [views, setViews]     = useState([]);
+  useEffect(() => { viewsRef.current = views; }, [views]);
   const [folders, setFolders] = useState([]);
   const [activeViewId, setActiveViewId] = useState('default');
   const [showSidebar, setShowSidebar] = useState(true);
@@ -67,11 +221,11 @@ export default function App() {
   const [selectedProjects, setSelectedProjects] = useState(DEFAULT_CONFIG.selectedProjects);
   const [statusFilter, setStatusFilter]         = useState(DEFAULT_CONFIG.statusFilter);
   const [jqlFilter, setJqlFilter]               = useState(DEFAULT_CONFIG.jqlFilter);
-  const [groupByField1, setGroupByField1]       = useState(DEFAULT_CONFIG.groupByField1);
-  const [groupByField2, setGroupByField2]       = useState(DEFAULT_CONFIG.groupByField2);
+  const [groupByFields, setGroupByFields]       = useState(DEFAULT_CONFIG.groupByFields);
   const [startDateField, setStartDateField]     = useState(DEFAULT_CONFIG.startDateField);
   const [endDateField, setEndDateField]         = useState(DEFAULT_CONFIG.endDateField);
   const [listFields, setListFields]             = useState(DEFAULT_CONFIG.listFields);
+  const [previewFields, setPreviewFields]       = useState(DEFAULT_CONFIG.previewFields);
   const [viewType, setViewType]                 = useState(DEFAULT_CONFIG.viewType);
   const [orderByField, setOrderByField]         = useState(DEFAULT_CONFIG.orderByField);
   const [orderByDir, setOrderByDir]             = useState(DEFAULT_CONFIG.orderByDir);
@@ -130,13 +284,18 @@ export default function App() {
       const projects = (projectsData.values || []).map(p => ({ key: p.key, name: p.name }));
       setAvailableProjects(projects);
 
-      // Check URL hash for a persisted view ID, then fall back to default view
-      const hashViewId = window.location.hash?.slice(1);
+      // Restore last active view from the iframe URL hash (set when switching views within a session).
+      // Note: share links cannot deep-link to a specific view because the Forge app runs in a
+      // cross-origin CDN iframe — the parent Jira page hash is inaccessible from inside the iframe.
+      const rawHash = window.location.hash?.slice(1) || '';
+      const hashViewId = rawHash.includes(':') ? rawHash.split(':').slice(1).join(':') : rawHash;
       const hashView = hashViewId ? loadedViews.find(v => v.id === hashViewId) : null;
       const active = hashView || loadedViews.find(v => v.isDefault) || loadedViews[0];
       if (active) {
         applyView(active);
-        window.location.hash = '#' + active.id;
+        const slug = active.name ? active.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : active.id;
+        const hashVal = '#' + slug + ':' + active.id;
+        window.location.hash = hashVal;
         invoke('getCustomEvents', { viewId: active.id, folderId: active.folderId || null })
           .then(eventsData => setCustomEvents(eventsData || []));
         invoke('getBaselines', { viewId: active.id, folderId: active.folderId || null })
@@ -150,11 +309,11 @@ export default function App() {
     setSelectedProjects(view.selectedProjects || []);
     setStatusFilter(view.statusFilter || 'active');
     setJqlFilter(view.jqlFilter || '');
-    setGroupByField1(view.groupByField1 || 'labels');
-    setGroupByField2(view.groupByField2 || 'assignee');
+    setGroupByFields(view.groupByFields || (view.groupByField1 ? [view.groupByField1, view.groupByField2].filter(Boolean) : ['labels', 'assignee']));
     setStartDateField(view.startDateField || 'customfield_10015');
     setEndDateField(view.endDateField || 'duedate');
     setListFields(view.listFields || DEFAULT_CONFIG.listFields);
+    setPreviewFields(view.previewFields || DEFAULT_CONFIG.previewFields);
     setViewType(view.viewType || 'timeline');
     setOrderByField(view.orderByField || 'duedate');
     setOrderByDir(view.orderByDir || 'ASC');
@@ -162,20 +321,23 @@ export default function App() {
   }
 
   // ── Dirty state — has config diverged from saved view? ────────────────────
-  const savedView = views.find(v => v.id === activeViewId);
-  const isDirty = savedView && (
-    JSON.stringify(selectedProjects) !== JSON.stringify(savedView.selectedProjects || []) ||
-    statusFilter   !== (savedView.statusFilter   || 'active') ||
-    jqlFilter      !== (savedView.jqlFilter      || '') ||
-    groupByField1  !== (savedView.groupByField1  || 'labels') ||
-    groupByField2  !== (savedView.groupByField2  || 'assignee') ||
-    startDateField !== (savedView.startDateField || 'customfield_10015') ||
-    endDateField   !== (savedView.endDateField   || 'duedate') ||
-    JSON.stringify(listFields) !== JSON.stringify(savedView.listFields || DEFAULT_CONFIG.listFields) ||
-    viewType       !== (savedView.viewType       || 'timeline') ||
-    orderByField   !== (savedView.orderByField   || 'duedate') ||
-    orderByDir     !== (savedView.orderByDir     || 'ASC') ||
-    eventsOnly     !== (savedView.eventsOnly     || false)
+  // activeView / savedView — same computation, unified here to prevent
+  // webpack minifier TDZ bug (duplicate `views.find` assigned same minified
+  // name but with the declaration placed after an earlier use).
+  const activeView = views.find(v => v.id === activeViewId);
+  const isDirty = activeView && (
+    JSON.stringify(selectedProjects) !== JSON.stringify(activeView.selectedProjects || []) ||
+    statusFilter   !== (activeView.statusFilter   || 'active') ||
+    jqlFilter      !== (activeView.jqlFilter      || '') ||
+    JSON.stringify(groupByFields) !== JSON.stringify(activeView.groupByFields || (activeView.groupByField1 ? [activeView.groupByField1, activeView.groupByField2].filter(Boolean) : ['labels', 'assignee'])) ||
+    startDateField !== (activeView.startDateField || 'customfield_10015') ||
+    endDateField   !== (activeView.endDateField   || 'duedate') ||
+    JSON.stringify(listFields) !== JSON.stringify(activeView.listFields || DEFAULT_CONFIG.listFields) ||
+    JSON.stringify(previewFields) !== JSON.stringify(activeView.previewFields || DEFAULT_CONFIG.previewFields) ||
+    viewType       !== (activeView.viewType       || 'timeline') ||
+    orderByField   !== (activeView.orderByField   || 'duedate') ||
+    orderByDir     !== (activeView.orderByDir     || 'ASC') ||
+    eventsOnly     !== (activeView.eventsOnly     || false)
   );
 
   // ── Resolve folder-scoped JQL ──────────────────────────────────────────────
@@ -198,7 +360,7 @@ export default function App() {
     // Fallback: if view has no JQL and no projects, try inheriting from folder
     let effectiveJql = customJql;
     if (!effectiveJql && selectedProjects.length === 0) {
-      const currentView = views.find(v => v.id === activeViewId);
+      const currentView = viewsRef.current.find(v => v.id === activeViewId);
       effectiveJql = resolveFolderJql(currentView, folders);
     }
 
@@ -225,7 +387,7 @@ export default function App() {
       }
 
       const defaultFields = ['summary','assignee','status','priority','duedate','customfield_10015','labels','issuetype','project','resolution','reporter'];
-      const extraFields = [groupByField1, groupByField2, startDateField, endDateField].filter(f =>
+      const extraFields = [...groupByFields, startDateField, endDateField].filter(f =>
         f && !defaultFields.includes(f)
       );
 
@@ -252,12 +414,12 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProjects, statusFilter, jqlFilter, groupByField1, groupByField2, startDateField, endDateField, orderByField, orderByDir, eventsOnly, views, activeViewId, folders]);
+  }, [selectedProjects, statusFilter, jqlFilter, groupByFields, startDateField, endDateField, orderByField, orderByDir, eventsOnly, activeViewId, folders]);
 
   useEffect(() => {
     const customJql = jqlFilter.trim();
     // Also trigger fetch if a folder provides JQL
-    const currentView = views.find(v => v.id === activeViewId);
+    const currentView = viewsRef.current.find(v => v.id === activeViewId);
     const folderJql = resolveFolderJql(currentView, folders);
     if (selectedProjects.length > 0 || customJql || folderJql) fetchIssues();
     else {
@@ -267,18 +429,27 @@ export default function App() {
     }
   }, [fetchIssues]);
 
-  // ── View management ───────────────────────────────────────────────────────
+  // ── Unsaved changes confirm dialog ───────────────────────────────────────
+  const [confirmSwitch, setConfirmSwitch] = useState(null); // { viewId } | null
+
   function switchView(viewId) {
     if (isDirty) {
-      if (!window.confirm('You have unsaved config changes. Switch anyway and discard them?')) return;
+      setConfirmSwitch({ viewId });
+      return;
     }
+    doSwitchView(viewId);
+  }
+
+  function doSwitchView(viewId) {
     const view = views.find(v => v.id === viewId);
     if (!view) return;
     setActiveModuleId(null);
     applyView(view);
     setShowConfig(false);
     // Persist active view in URL hash for reload persistence
-    window.location.hash = '#' + viewId;
+    const slug = view.name ? view.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') : viewId;
+    const hashVal2 = '#' + slug + ':' + viewId;
+    window.location.hash = hashVal2;
     invoke('getCustomEvents', { viewId: view.id, folderId: view.folderId || null })
       .then(eventsData => setCustomEvents(eventsData || []));
     invoke('getBaselines', { viewId: view.id, folderId: view.folderId || null })
@@ -350,12 +521,21 @@ export default function App() {
     const updated = {
       ...view,
       selectedProjects, statusFilter, jqlFilter,
-      groupByField1, groupByField2, startDateField, endDateField,
-      listFields, viewType, orderByField, orderByDir, eventsOnly,
+      groupByFields, startDateField, endDateField,
+      listFields, previewFields, viewType, orderByField, orderByDir, eventsOnly,
     };
     await invoke('saveView', { view: updated });
     setViews(prev => prev.map(v => v.id === activeViewId ? updated : v));
     setShowConfig(false);
+  }
+
+  async function changeViewType(newType) {
+    setViewType(newType);
+    const view = viewsRef.current.find(v => v.id === activeViewId);
+    if (!view) return;
+    const updated = { ...view, viewType: newType };
+    await invoke('saveView', { view: updated });
+    setViews(prev => prev.map(v => v.id === activeViewId ? updated : v));
   }
 
   // ── Set default view ──────────────────────────────────────────────────────
@@ -431,6 +611,12 @@ export default function App() {
       ? prev.map(e => e.id === eventData.id ? saved : e)
       : [...prev, saved]
     );
+    // Scroll to the new event's date so the user can see it
+    const dateStr = saved.startDate || saved.endDate;
+    if (dateStr && !eventData.id) {
+      const d = new Date(dateStr);
+      setScrollTarget({ year: d.getFullYear(), month: d.getMonth(), seq: Date.now() });
+    }
     closeEventModal();
   }
 
@@ -466,6 +652,13 @@ export default function App() {
       startDateField: startDateField || 'customfield_10015',
       endDateField: endDateField || 'duedate',
     });
+  }
+
+  function updateIssueFieldLocal(key, fieldId, value) {
+    setIssues(prev => prev.map(iss => {
+      if (iss.key !== key) return iss;
+      return { ...iss, fields: { ...iss.fields, [fieldId]: value } };
+    }));
   }
 
   // ── Baseline management ───────────────────────────────────────────────────
@@ -586,6 +779,33 @@ export default function App() {
     return saved;
   }
 
+  // ── Issue preview drawer ───────────────────────────────────────────────────
+  function handleCreateLink(sourceKey, targetKey) {
+    // Optimistic update — add the link to local state immediately, no reload
+    setIssues(prev => prev.map(iss => {
+      if (iss.key !== sourceKey) return iss;
+      const newLink = {
+        id: `temp-${Date.now()}`,
+        type: { name: 'Blocks', outward: 'blocks', inward: 'is blocked by' },
+        outwardIssue: { key: targetKey },
+      };
+      return { ...iss, fields: { ...iss.fields, issuelinks: [...(iss.fields.issuelinks || []), newLink] } };
+    }));
+    invoke('createIssueLink', { outwardIssueKey: sourceKey, inwardIssueKey: targetKey });
+  }
+
+  async function handleDeleteLink(linkId) {
+    // Optimistic update — remove from local state immediately
+    setIssues(prev => prev.map(iss => ({
+      ...iss,
+      fields: {
+        ...iss.fields,
+        issuelinks: (iss.fields.issuelinks || []).filter(l => l.id !== linkId),
+      },
+    })));
+    invoke('deleteIssueLink', { linkId });
+  }
+
   // ── Share dialog ───────────────────────────────────────────────────────────
   const [shareBaseUrl, setShareBaseUrl] = useState('');
 
@@ -614,7 +834,12 @@ export default function App() {
   }, []);
 
   // Include the current view ID in the share URL so it deep-links
-  const shareUrl = shareBaseUrl ? `${shareBaseUrl}#${activeViewId}` : '';
+  const activeViewSlug = activeView?.name
+    ? activeView.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    : activeViewId;
+  const shareUrl = shareBaseUrl
+    ? `${shareBaseUrl}#${activeViewSlug}:${activeViewId}`
+    : '';
 
   // ── Timeline navigation ───────────────────────────────────────────────────
   function navigateTo(year, month) {
@@ -629,18 +854,11 @@ export default function App() {
   }
 
   function jumpToToday() {
-    navigateTo(today.getFullYear(), today.getMonth());
+    setScrollTarget({ today: true, seq: Date.now() });
   }
 
   // ── Derived state ─────────────────────────────────────────────────────────
-  const activeView = views.find(v => v.id === activeViewId);
-
-  const fieldLabel = (id) => availableFields.find(f => f.id === id)?.name || id;
-  const groupByField1Label = fieldLabel(groupByField1);
-  const groupByField2Label = fieldLabel(groupByField2);
-
-  const groupOptions1 = extractGroupOptions(issues, groupByField1);
-  const groupOptions2 = extractGroupOptions(issues, groupByField2);
+  // (activeView already declared above alongside isDirty)
 
   const activeBaseline = activeBaselineId ? baselines.find(b => b.id === activeBaselineId) || null : null;
 
@@ -648,83 +866,69 @@ export default function App() {
 
   return (
     <div style={styles.root}>
-      {/* ── Toolbar ── */}
+      {/* ── App header (sidebar toggle + title) ── */}
       <div style={styles.toolbar}>
         <button style={styles.sidebarToggle} onClick={() => setShowSidebar(v => !v)} title="Toggle sidebar">☰</button>
         <span style={styles.appTitle}>Team Gantt</span>
-        {activeModuleId === 'teams' ? (
-          <span style={styles.viewName}>&#128101; Teams</span>
-        ) : activeModuleId === 'risks' ? (
-          <span style={styles.viewName}>&#9888;&#65039; Risks</span>
-        ) : activeModuleId === 'objectives' ? (
-          <span style={styles.viewName}>&#127919; Objectives</span>
-        ) : activeModuleId === 'resources' ? (
-          <span style={styles.viewName}>&#128202; Resources</span>
-        ) : activeModuleId === 'reports' ? (
-          <span style={styles.viewName}>&#128200; Reports</span>
-        ) : activeView && (
-          <span style={styles.viewName}>
-            <span style={{
-              width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, display: 'inline-block',
-              background: viewType === 'list' ? '#00854d' : viewType === 'project' ? '#00B8D9' : '#0073ea',
-            }} />
-            {activeView.name}
-            {isDirty && <span style={styles.dirtyDot} title="Unsaved changes">●</span>}
-          </span>
-        )}
-
-        {/* Show timeline nav for Gantt, Project, and legacy types that fall back to Gantt */}
-        {viewType !== 'list' && !activeModuleId && (
-          <div style={styles.navGroup}>
-            <button style={styles.navBtn} onClick={() => navigateMonth(-1)}>‹</button>
-            <span style={styles.monthLabel}>{monthLabel}</span>
-            <button style={styles.navBtn} onClick={() => navigateMonth(1)}>›</button>
-            <button style={styles.todayBtn} onClick={jumpToToday}>Today</button>
-          </div>
-        )}
-
-        {!activeModuleId && (
-        <div style={styles.toolbarRight}>
-          <button style={styles.addEventBtn} onClick={openCreateEvent}>+ Add Event</button>
-          <div style={{ position: 'relative', display: 'inline-flex' }}>
-            <button
-              style={styles.shareLinkBtn}
-              onClick={() => setShowShareDialog(true)}
-              title="Share this view"
-            >Share</button>
-          </div>
-          <button
-            style={{ ...styles.configBtn, background: isDirty ? '#FFFAE6' : '#fff', borderColor: isDirty ? '#FF8B00' : '#DFE1E6' }}
-            onClick={() => setShowConfig(v => !v)}
-            title={isDirty ? 'Configure view (unsaved changes)' : 'Configure view'}
-          >Configure{isDirty ? ' ·' : ''}</button>
-          <button style={styles.refreshBtn} onClick={fetchIssues} title="Refresh">⟳</button>
-        </div>
-        )}
+        {activeModuleId === 'teams' && <span style={styles.viewName}>&#128101; Teams</span>}
+        {activeModuleId === 'risks' && <span style={styles.viewName}>&#9888;&#65039; Risks</span>}
+        {activeModuleId === 'objectives' && <span style={styles.viewName}>&#127919; Objectives</span>}
+        {activeModuleId === 'resources' && <span style={styles.viewName}>&#128202; Resources</span>}
+        {activeModuleId === 'reports' && <span style={styles.viewName}>&#128200; Reports</span>}
+        {activeModuleId === 'feature-status' && <span style={styles.viewName}>&#128202; Feature Status</span>}
       </div>
 
-      {/* ── Gantt filter bar ── */}
-      {viewType === 'timeline' && !activeModuleId && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 16px', background: '#fff', borderBottom: '1px solid #e6e9ef', flexShrink: 0 }}>
-          {[
-            { f: 'all',    label: `All (${issues.length + customEvents.length})` },
-            { f: 'issues', label: `Issues (${issues.length})` },
-            { f: 'events', label: `Events (${customEvents.length})` },
-          ].map(({ f, label }) => (
-            <button key={f}
-              style={{
-                padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 500,
-                border: '1px solid', cursor: 'pointer',
-                background: ganttFilter === f ? '#0073ea' : '#fff',
-                color: ganttFilter === f ? '#fff' : '#6B778C',
-                borderColor: ganttFilter === f ? '#0073ea' : '#DFE1E6',
-              }}
-              onClick={() => setGanttFilter(f)}
-            >{label}</button>
-          ))}
-          {/* Critical Path toggle removed — re-add when users have Blocks links */}
-        </div>
-      )}
+      {/* ── Airtable-style toolbar ── */}
+      <Toolbar
+        activeView={activeView}
+        viewType={viewType}
+        isDirty={isDirty}
+        availableFields={availableFields}
+        availableProjects={availableProjects}
+        groupByFields={groupByFields}
+        onGroupByFieldsChange={setGroupByFields}
+        jqlFilter={jqlFilter}
+        onJqlFilterChange={setJqlFilter}
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+        selectedProjects={selectedProjects}
+        onProjectsChange={setSelectedProjects}
+        startDateField={startDateField}
+        endDateField={endDateField}
+        onStartDateFieldChange={setStartDateField}
+        onEndDateFieldChange={setEndDateField}
+        listFields={listFields}
+        onListFieldsChange={setListFields}
+        previewFields={previewFields}
+        onPreviewFieldsChange={setPreviewFields}
+        orderByField={orderByField}
+        orderByDir={orderByDir}
+        onOrderByFieldChange={setOrderByField}
+        onOrderByDirChange={setOrderByDir}
+        onViewTypeChange={changeViewType}
+        eventsOnly={eventsOnly}
+        onEventsOnlyChange={setEventsOnly}
+        holidays={holidays}
+        onSaveHolidays={saveHolidaysList}
+        baselines={baselines}
+        activeBaselineId={activeBaselineId}
+        onCreateBaseline={createBaseline}
+        onDeleteBaseline={deleteBaseline}
+        onSetActiveBaseline={setActiveBaselineId}
+        ganttFilter={ganttFilter}
+        onGanttFilterChange={setGanttFilter}
+        issues={issues}
+        customEvents={customEvents}
+        onAddEvent={openCreateEvent}
+        onShareClick={() => setShowShareDialog(true)}
+        onRefresh={fetchIssues}
+        onSave={saveCurrentView}
+        visYear={visYear}
+        visMonth={visMonth}
+        onNavigateMonth={navigateMonth}
+        onJumpToToday={jumpToToday}
+        activeModuleId={activeModuleId}
+      />
 
       {/* ── Truncation warning ── */}
       {issuesTruncated && !activeModuleId && (
@@ -762,15 +966,17 @@ export default function App() {
 
         <div style={styles.content}>
           {activeModuleId === 'teams' ? (
-            <TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} />
+            <ModuleErrorBoundary key="teams"><TeamsModule teams={teams} onSaveTeam={saveTeam} onDeleteTeam={deleteTeam} /></ModuleErrorBoundary>
           ) : activeModuleId === 'risks' ? (
-            <RisksModule risks={risks} onSaveRisk={saveRisk} onDeleteRisk={deleteRisk} />
+            <ModuleErrorBoundary key="risks"><RisksModule risks={risks} onSaveRisk={saveRisk} onDeleteRisk={deleteRisk} /></ModuleErrorBoundary>
           ) : activeModuleId === 'objectives' ? (
-            <ObjectivesModule objectives={objectives} issues={issues} onSaveObjective={saveObjective} onDeleteObjective={deleteObjective} />
+            <ModuleErrorBoundary key="objectives"><ObjectivesModule objectives={objectives} issues={issues} onSaveObjective={saveObjective} onDeleteObjective={deleteObjective} /></ModuleErrorBoundary>
           ) : activeModuleId === 'resources' ? (
-            <ResourcesModule issues={issues} teams={teams} startDateField={startDateField} endDateField={endDateField} />
+            <ModuleErrorBoundary key="resources"><ResourcesModule issues={issues} teams={teams} startDateField={startDateField} endDateField={endDateField} /></ModuleErrorBoundary>
           ) : activeModuleId === 'reports' ? (
-            <ReportsModule issues={issues} startDateField={startDateField} endDateField={endDateField} />
+            <ModuleErrorBoundary key="reports"><ReportsModule issues={issues} startDateField={startDateField} endDateField={endDateField} /></ModuleErrorBoundary>
+          ) : activeModuleId === 'feature-status' ? (
+            <ModuleErrorBoundary key="feature-status"><FeatureStatusModule issues={issues} startDateField={startDateField} endDateField={endDateField} availableFields={availableFields} /></ModuleErrorBoundary>
           ) : (
           <>
           {error && (
@@ -792,12 +998,7 @@ export default function App() {
               availableFields={availableFields}
               startDateField={startDateField}
               endDateField={endDateField}
-              groupByField1={groupByField1}
-              groupByField2={groupByField2}
-              groupByField1Label={groupByField1Label}
-              groupByField2Label={groupByField2Label}
-              groupOptions1={groupOptions1}
-              groupOptions2={groupOptions2}
+              groupByFields={groupByFields}
               onEditEvent={openEditEvent}
               onAddEvent={openCreateEvent}
               onSaveEvent={saveEvent}
@@ -812,6 +1013,8 @@ export default function App() {
               holidays={holidays}
               scrollToTarget={scrollTarget}
               onVisibleMonthChange={(y, m) => { setVisYear(y); setVisMonth(m); }}
+              listFields={listFields}
+              availableFields={availableFields}
             />
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'
@@ -820,10 +1023,7 @@ export default function App() {
               issues={ganttFilter === 'events' ? [] : issues}
               customEvents={ganttFilter === 'issues' ? [] : customEvents}
               today={today}
-              groupByField1={groupByField1}
-              groupByField2={groupByField2}
-              groupByField1Label={groupByField1Label}
-              groupByField2Label={groupByField2Label}
+              groupByFields={groupByFields}
               startDateField={startDateField}
               endDateField={endDateField}
               scrollToTarget={scrollTarget}
@@ -834,75 +1034,46 @@ export default function App() {
               onUpdateIssue={updateIssueDates}
               onCreateEvent={handleCreateEvent}
               onPreviewIssue={null}
-              previewFields={listFields}
+              previewFields={previewFields}
               availableFields={availableFields}
               showCriticalPath={showCriticalPath}
               activeBaseline={activeBaseline}
               holidays={holidays}
+              onCreateLink={handleCreateLink}
+              onDeleteLink={handleDeleteLink}
+              onFieldUpdate={updateIssueFieldLocal}
+              getIssueDates={(key) => { const iss = issues.find(i => i.key === key); if (!iss) return null; return { startDate: iss.fields[startDateField || 'customfield_10015'], endDate: iss.fields[endDateField || 'duedate'] }; }}
             />
           )}
           </>
           )}
         </div>
 
-        {showConfig && (
-          <ConfigPanel
-            availableProjects={availableProjects}
-            availableFields={availableFields}
-            selectedProjects={selectedProjects}
-            statusFilter={statusFilter}
-            jqlFilter={jqlFilter}
-            groupByField1={groupByField1}
-            groupByField2={groupByField2}
-            startDateField={startDateField}
-            endDateField={endDateField}
-            viewType={viewType}
-            listFields={listFields}
-            onProjectsChange={setSelectedProjects}
-            onStatusFilterChange={setStatusFilter}
-            onJqlFilterChange={setJqlFilter}
-            onGroupByField1Change={setGroupByField1}
-            onGroupByField2Change={setGroupByField2}
-            onStartDateFieldChange={setStartDateField}
-            onEndDateFieldChange={setEndDateField}
-            onListFieldsChange={setListFields}
-            onViewTypeChange={setViewType}
-            orderByField={orderByField}
-            orderByDir={orderByDir}
-            onOrderByFieldChange={setOrderByField}
-            onOrderByDirChange={setOrderByDir}
-            eventsOnly={eventsOnly}
-            onEventsOnlyChange={setEventsOnly}
-            onSave={saveCurrentView}
-            onClose={() => setShowConfig(false)}
-            baselines={baselines}
-            activeBaselineId={activeBaselineId}
-            onCreateBaseline={createBaseline}
-            onDeleteBaseline={deleteBaseline}
-            onSetActiveBaseline={setActiveBaselineId}
-            holidays={holidays}
-            onSaveHolidays={saveHolidaysList}
-          />
-        )}
+        {/* ConfigPanel replaced by Toolbar popovers */}
       </div>
 
-      {showEventModal && (
-        <EventModal
-          event={editingEvent}
-          groupByField1={groupByField1}
-          groupByField2={groupByField2}
-          groupByField1Label={groupByField1Label}
-          groupByField2Label={groupByField2Label}
-          groupOptions1={groupOptions1}
-          groupOptions2={groupOptions2}
-          initialStartDate={pendingCreate?.startDate}
-          initialEndDate={pendingCreate?.endDate}
-          initialGroup1Value={pendingCreate?.group1Value}
-          initialGroup2Value={pendingCreate?.group2Value}
-          onSave={saveEvent}
-          onClose={closeEventModal}
-        />
-      )}
+      {showEventModal && (() => {
+        const gf1 = groupByFields?.[0] || '';
+        const gf2 = groupByFields?.[1] || '';
+        const gfLabel = id => availableFields?.find(f => f.id === id)?.name || id;
+        return (
+          <EventModal
+            event={editingEvent}
+            groupByField1={gf1}
+            groupByField2={gf2}
+            groupByField1Label={gfLabel(gf1)}
+            groupByField2Label={gfLabel(gf2)}
+            groupOptions1={gf1 ? extractGroupOptions(issues, gf1) : []}
+            groupOptions2={gf2 ? extractGroupOptions(issues, gf2) : []}
+            initialStartDate={pendingCreate?.startDate}
+            initialEndDate={pendingCreate?.endDate}
+            initialGroup1Value={pendingCreate?.group1Value}
+            initialGroup2Value={pendingCreate?.group2Value}
+            onSave={saveEvent}
+            onClose={closeEventModal}
+          />
+        );
+      })()}
 
       {/* ── Share dialog ── */}
       {showShareDialog && (
@@ -914,20 +1085,19 @@ export default function App() {
             </div>
             <div style={shareStyles.body}>
               <p style={shareStyles.desc}>
-                Anyone with access to this Jira site can open this link to view <b>{activeView?.name || 'this view'}</b>.
+                Share this link with anyone who has access to this Jira site. It opens the Team Gantt app.
               </p>
               <div style={shareStyles.urlRow}>
                 <input
                   readOnly
-                  value={shareUrl}
+                  value={shareBaseUrl}
                   style={shareStyles.urlInput}
                   onFocus={e => e.target.select()}
                 />
                 <button
                   style={shareStyles.copyBtn}
                   onClick={(e) => {
-                    const url = shareUrl;
-                    // Forge iframe clipboard fallback: select hidden input + execCommand
+                    const url = shareBaseUrl;
                     try { navigator.clipboard.writeText(url); } catch {}
                     const inp = e.currentTarget.previousSibling;
                     inp.select();
@@ -937,7 +1107,26 @@ export default function App() {
                   }}
                 >Copy</button>
               </div>
-              <p style={shareStyles.hint}>Tip: set a view as the ★ default so others land on it when they open the link.</p>
+              {activeView?.name && (
+                <div style={shareStyles.viewHint}>
+                  <span style={shareStyles.viewHintLabel}>Tell them to open:</span>
+                  <span style={shareStyles.viewHintName}>{activeView.name}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Unsaved changes dialog ── */}
+      {confirmSwitch && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', maxWidth: 360, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.18)', fontFamily: "'Inter', sans-serif" }}>
+            <p style={{ fontSize: 15, fontWeight: 600, color: '#172B4D', margin: '0 0 8px' }}>Unsaved changes</p>
+            <p style={{ fontSize: 13, color: '#6B778C', margin: '0 0 20px', lineHeight: 1.5 }}>You have unsaved changes. Switch views and discard them?</p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmSwitch(null)} style={{ background: 'none', border: '1px solid #DFE1E6', borderRadius: 5, padding: '6px 16px', fontSize: 13, cursor: 'pointer', color: '#172B4D' }}>Cancel</button>
+              <button onClick={() => { const id = confirmSwitch.viewId; setConfirmSwitch(null); doSwitchView(id); }} style={{ background: '#DE350B', border: 'none', borderRadius: 5, padding: '6px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#fff' }}>Discard & switch</button>
             </div>
           </div>
         </div>
@@ -945,117 +1134,3 @@ export default function App() {
     </div>
   );
 }
-
-const shareStyles = {
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(9,30,66,0.54)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000,
-  },
-  modal: {
-    background: '#fff', borderRadius: '8px', width: '440px', maxWidth: '90vw',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.3)', overflow: 'hidden',
-  },
-  header: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '16px 20px', borderBottom: '1px solid #DFE1E6',
-  },
-  title: { fontWeight: 700, fontSize: '16px', color: '#172B4D' },
-  close: {
-    background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px',
-    color: '#6B778C', width: '28px', height: '28px', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', borderRadius: '4px',
-  },
-  body: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' },
-  desc: { fontSize: '13px', color: '#42526E', margin: 0, lineHeight: 1.5 },
-  urlRow: { display: 'flex', gap: '8px' },
-  urlInput: {
-    flex: 1, border: '1px solid #DFE1E6', borderRadius: '4px', padding: '8px 10px',
-    fontSize: '12px', color: '#172B4D', fontFamily: 'monospace', background: '#F4F5F7',
-    outline: 'none',
-  },
-  copyBtn: {
-    background: '#0052CC', color: '#fff', border: 'none', borderRadius: '4px',
-    padding: '8px 16px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
-    flexShrink: 0, minWidth: '70px',
-  },
-  hint: { fontSize: '11px', color: '#97A0AF', margin: 0, fontStyle: 'italic' },
-};
-
-const styles = {
-  root: {
-    display: 'flex', flexDirection: 'column', height: '100vh',
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif",
-    fontSize: '13px', color: '#323338', background: '#f6f7fb',
-  },
-  toolbar: {
-    display: 'flex', alignItems: 'center', gap: '10px', padding: '0 16px',
-    height: '56px', background: '#fff', borderBottom: '1px solid #e6e9ef',
-    flexShrink: 0, flexWrap: 'wrap',
-  },
-  sidebarToggle: {
-    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
-    width: '32px', height: '32px', cursor: 'pointer', fontSize: '14px',
-    color: '#676879', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  appTitle: { fontWeight: 800, fontSize: '15px', color: '#323338', letterSpacing: '-0.3px' },
-  viewName: {
-    fontSize: '13px', color: '#676879', fontWeight: 500,
-    borderLeft: '1px solid #e6e9ef', paddingLeft: '10px',
-    display: 'flex', alignItems: 'center', gap: '5px',
-  },
-  dirtyDot: { color: '#fdab3d', fontSize: '10px', lineHeight: 1 },
-  navGroup: { display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '8px' },
-  navBtn: {
-    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
-    width: '30px', height: '30px', cursor: 'pointer', fontSize: '16px',
-    color: '#323338', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  monthLabel: { fontWeight: 700, fontSize: '14px', minWidth: '150px', textAlign: 'center', color: '#323338' },
-  todayBtn: {
-    background: '#0073ea', color: '#fff', border: 'none', borderRadius: '6px',
-    padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
-    letterSpacing: '0.2px',
-  },
-  toolbarRight: { display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' },
-  addEventBtn: {
-    background: '#0073ea', color: '#fff', border: 'none', borderRadius: '6px',
-    padding: '6px 14px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
-    letterSpacing: '0.2px',
-  },
-  configBtn: {
-    border: '1px solid #e6e9ef', borderRadius: '6px', padding: '5px 12px',
-    cursor: 'pointer', fontSize: '12px', color: '#323338', fontWeight: 600,
-    background: '#fff',
-  },
-  shareLinkBtn: {
-    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
-    padding: '5px 12px', cursor: 'pointer', fontSize: '12px', fontWeight: 600,
-    color: '#676879',
-  },
-  refreshBtn: {
-    background: 'none', border: '1px solid #e6e9ef', borderRadius: '6px',
-    width: '30px', height: '30px', cursor: 'pointer', fontSize: '16px', color: '#676879',
-  },
-  truncationBanner: {
-    background: '#fff3c7', color: '#8a6800', padding: '6px 16px',
-    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px',
-    flexShrink: 0, borderBottom: '1px solid #ffcb00',
-  },
-  layout: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
-  content: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
-  errorBanner: {
-    background: '#ffe1e1', color: '#bf2040', padding: '8px 16px',
-    display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', flexShrink: 0,
-  },
-  retryBtn: {
-    background: 'none', border: '1px solid currentColor', borderRadius: '6px',
-    padding: '2px 8px', cursor: 'pointer', fontSize: '11px', color: 'inherit', marginLeft: 'auto',
-  },
-  loadingWrap: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '14px' },
-  spinner: {
-    width: '28px', height: '28px', borderRadius: '50%',
-    border: '3px solid #e6e9ef', borderTopColor: '#0073ea',
-    animation: 'spin 0.8s linear infinite',
-  },
-  loadingText: { color: '#676879', margin: 0, fontSize: '13px', fontWeight: 500 },
-};

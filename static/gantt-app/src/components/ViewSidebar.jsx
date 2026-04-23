@@ -1,21 +1,19 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import JqlInput from './JqlInput';
+import { C, T } from '../tokens';
 
 const VIEW_TYPE_META = {
-  timeline: { label: 'Gantt',   color: '#0073ea', dot: '#0073ea' },
-  list:     { label: 'List',    color: '#00854d', dot: '#00854d' },
-  project:  { label: 'Project', color: '#00B8D9', dot: '#00B8D9' },
+  timeline: { label: 'Gantt',   color: C.primary2, dot: C.primary2 },
+  list:     { label: 'List',    color: C.success,  dot: C.success },
+  project:  { label: 'Project', color: '#0f8a7a',  dot: '#0f8a7a' },
 };
 
 // Fallback for legacy view types (tree, roadmap) that may exist in saved data
 const DEFAULT_TYPE_META = { label: 'Unknown', color: '#97A0AF', dot: '#97A0AF' };
 
 const MODULES = [
-  { id: 'teams', label: 'Teams', icon: '\uD83D\uDC65', description: 'Manage teams and member capacity' },
-  { id: 'risks', label: 'Risks', icon: '\u26A0\uFE0F', description: 'Track risks with probability/impact matrix' },
-  { id: 'objectives', label: 'Objectives', icon: '\uD83C\uDFAF', description: 'OKRs with auto-progress from Jira' },
-  { id: 'resources', label: 'Resources', icon: '\uD83D\uDCCA', description: 'Capacity heatmap across weeks' },
-  { id: 'reports', label: 'Reports', icon: '\uD83D\uDCC8', description: 'Burndown, throughput, status charts' },
+  { id: 'resources', label: 'Resources', iconColor: '#0052CC', description: 'Capacity heatmap across weeks' },
+  { id: 'feature-status', label: 'Feature Status', iconColor: '#00875A', description: 'Progress overview, overdue & upcoming' },
 ];
 
 export default function ViewSidebar({
@@ -46,14 +44,21 @@ export default function ViewSidebar({
   // Module picker state
   const [showModulePicker, setShowModulePicker] = useState(false);
   const [hoveredModuleId, setHoveredModuleId] = useState(null);
+  const [moduleSearch, setModuleSearch] = useState('');
+  const [stagedIds, setStagedIds] = useState(enabledModuleIds);
   const modulePickerRef = useRef(null);
 
-  // Close module picker on outside click or Escape
+  // Seed staged state when picker opens
+  useEffect(() => {
+    if (showModulePicker) { setStagedIds(enabledModuleIds); setModuleSearch(''); }
+  }, [showModulePicker]); // eslint-disable-line
+
+  // Close module picker on outside click (treat as Cancel) or Escape
   useEffect(() => {
     if (!showModulePicker) return;
     function handleClick(e) {
       if (modulePickerRef.current && !modulePickerRef.current.contains(e.target)) {
-        setShowModulePicker(false);
+        setShowModulePicker(false); // discard staged
       }
     }
     function handleKey(e) {
@@ -292,7 +297,11 @@ export default function ViewSidebar({
 
   return (
     <div style={styles.sidebar}>
-      <div style={styles.sidebarHeader}>
+      <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${C.line}` }}>
+        <span style={{ fontFamily: T.display, fontSize: 15, fontWeight: 600, color: C.ink, letterSpacing: -0.3 }}>Team Gantt</span>
+      </div>
+
+      <div style={{ ...styles.sidebarHeader, paddingTop: 12 }}>
         <span>Views</span>
         <button style={styles.headerBtn} onClick={() => setCreatingFolder(true)} title="New folder">
           + Folder
@@ -360,35 +369,55 @@ export default function ViewSidebar({
       {/* Module picker (inline dropdown) */}
       {showModulePicker && (
         <div ref={modulePickerRef} style={modulePickerStyles.container}>
-          <div style={modulePickerStyles.title}>Available Modules</div>
-          {MODULES.map(mod => {
-            const isEnabled = enabledModuleIds.includes(mod.id);
-            return (
-              <div key={mod.id} style={modulePickerStyles.row}>
-                <span style={{ fontSize: '14px', flexShrink: 0 }}>{mod.icon}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#172B4D' }}>{mod.label}</div>
-                  <div style={{ fontSize: '10px', color: '#6B778C', lineHeight: '1.3' }}>{mod.description}</div>
-                </div>
-                <button
-                  style={{
-                    ...modulePickerStyles.toggleBtn,
-                    background: isEnabled ? '#E3FCEF' : '#fff',
-                    color: isEnabled ? '#00875A' : '#0073ea',
-                    borderColor: isEnabled ? '#ABF5D1' : '#DFE1E6',
-                  }}
-                  onClick={() => {
-                    const next = isEnabled
-                      ? enabledModuleIds.filter(id => id !== mod.id)
-                      : [...enabledModuleIds, mod.id];
-                    if (onSaveEnabledModules) onSaveEnabledModules(next);
-                  }}
-                >
-                  {isEnabled ? 'Enabled \u2713' : 'Enable'}
-                </button>
-              </div>
+          <div style={modulePickerStyles.title}>Modules</div>
+          <div style={modulePickerStyles.searchWrap}>
+            <span style={modulePickerStyles.searchIcon}>🔍</span>
+            <input
+              autoFocus
+              placeholder="Search modules…"
+              value={moduleSearch}
+              onChange={e => setModuleSearch(e.target.value)}
+              style={modulePickerStyles.searchInput}
+            />
+          </div>
+          {(() => {
+            const filtered = MODULES.filter(m => m.label.toLowerCase().includes(moduleSearch.toLowerCase()));
+            if (filtered.length === 0) return (
+              <div style={modulePickerStyles.emptyState}>No modules match "{moduleSearch}"</div>
             );
-          })}
+            return filtered.map(mod => {
+              const isStaged = stagedIds.includes(mod.id);
+              return (
+                <label key={mod.id} style={{ ...modulePickerStyles.row, background: isStaged ? C.primaryBg : 'transparent', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={isStaged}
+                    onChange={() => setStagedIds(prev => isStaged ? prev.filter(id => id !== mod.id) : [...prev, mod.id])}
+                    style={{ flexShrink: 0, accentColor: C.primary }}
+                  />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: mod.iconColor, flexShrink: 0, display: 'inline-block' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: C.ink }}>{mod.label}</div>
+                    <div style={{ fontSize: '10px', color: C.ink3, lineHeight: 1.3 }}>{mod.description}</div>
+                  </div>
+                </label>
+              );
+            });
+          })()}
+          <div style={modulePickerStyles.footer}>
+            <span style={modulePickerStyles.footerCount}>
+              {stagedIds.length} selected
+              {JSON.stringify([...stagedIds].sort()) !== JSON.stringify([...enabledModuleIds].sort()) ? ' · unsaved' : ''}
+            </span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button style={modulePickerStyles.cancelBtn} onClick={() => setShowModulePicker(false)}>Cancel</button>
+              <button
+                style={{ ...modulePickerStyles.okBtn, opacity: JSON.stringify([...stagedIds].sort()) !== JSON.stringify([...enabledModuleIds].sort()) ? 1 : 0.4 }}
+                disabled={JSON.stringify([...stagedIds].sort()) === JSON.stringify([...enabledModuleIds].sort())}
+                onClick={() => { if (onSaveEnabledModules) onSaveEnabledModules(stagedIds); setShowModulePicker(false); }}
+              >OK</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -409,21 +438,21 @@ export default function ViewSidebar({
             style={{
               ...styles.viewItem,
               paddingLeft: '10px',
-              background: isActive ? '#DEEBFF' : 'transparent',
-              color: isActive ? '#0073ea' : '#172B4D',
+              background: isActive ? '#e8e7e1' : 'transparent',
+              color: isActive ? C.ink : C.ink2,
               cursor: 'pointer',
             }}
             onClick={() => onSelectModule && onSelectModule(mod.id)}
             onMouseEnter={(e) => {
               setHoveredModuleId(mod.id);
-              if (!isActive) e.currentTarget.style.background = '#F4F5F7';
+              if (!isActive) e.currentTarget.style.background = C.line2;
             }}
             onMouseLeave={(e) => {
               setHoveredModuleId(null);
               if (!isActive) e.currentTarget.style.background = 'transparent';
             }}
           >
-            <span style={{ fontSize: '14px', flexShrink: 0 }}>{mod.icon}</span>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: mod.iconColor, flexShrink: 0, display: 'inline-block' }} />
             <span style={{ fontSize: '13px', fontWeight: 500, flex: 1 }}>{mod.label}</span>
             {isHovered && (
               <button
@@ -646,22 +675,44 @@ const folderConfigStyles = {
 const modulePickerStyles = {
   container: {
     margin: '2px 8px 6px',
-    background: '#FAFBFC', border: '1px solid #DFE1E6', borderRadius: '6px',
-    padding: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+    background: '#fff', border: `1px solid ${C.line}`, borderRadius: 6,
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    overflow: 'hidden',
   },
   title: {
-    fontSize: '10px', fontWeight: 700, color: '#6B778C', textTransform: 'uppercase',
-    letterSpacing: '0.3px', padding: '2px 4px 6px', borderBottom: '1px solid #F4F5F7',
-    marginBottom: '4px',
+    fontSize: 10, fontWeight: 700, color: C.ink3, textTransform: 'uppercase',
+    letterSpacing: 0.4, padding: '8px 10px 6px', borderBottom: `1px solid ${C.line2}`,
+  },
+  searchWrap: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '6px 10px', borderBottom: `1px solid ${C.line2}`,
+  },
+  searchIcon: { fontSize: 11, color: C.ink4 },
+  searchInput: {
+    flex: 1, border: 'none', outline: 'none', fontSize: 12,
+    color: C.ink, background: 'transparent', fontFamily: 'inherit',
   },
   row: {
-    display: 'flex', alignItems: 'center', gap: '8px',
-    padding: '6px 4px', borderRadius: '4px',
+    display: 'flex', alignItems: 'center', gap: 8,
+    padding: '7px 10px', transition: 'background 0.1s',
   },
-  toggleBtn: {
-    border: '1px solid', borderRadius: '4px', padding: '3px 8px',
-    cursor: 'pointer', fontSize: '10px', fontWeight: 600,
-    flexShrink: 0, whiteSpace: 'nowrap',
+  emptyState: {
+    fontSize: 11.5, color: C.ink3, textAlign: 'center',
+    padding: '14px 10px',
+  },
+  footer: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '7px 10px', borderTop: `1px solid ${C.line2}`,
+    background: C.bgMuted,
+  },
+  footerCount: { fontSize: 11, color: C.ink3 },
+  cancelBtn: {
+    background: 'none', border: `1px solid ${C.line}`, borderRadius: 4,
+    padding: '4px 10px', fontSize: 12, color: C.ink2, cursor: 'pointer',
+  },
+  okBtn: {
+    background: C.primary, color: '#fff', border: 'none', borderRadius: 4,
+    padding: '4px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
   },
 };
 
@@ -681,8 +732,8 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
         paddingLeft: `${paddingLeft}px`,
         borderLeft: `3px solid ${meta.color}`,
         borderRadius: '0 4px 4px 0',
-        background: isActive ? '#DEEBFF' : hovered ? '#F4F5F7' : 'transparent',
-        color: isActive ? '#0073ea' : '#172B4D',
+        background: isActive ? '#e8e7e1' : hovered ? C.line2 : 'transparent',
+        color: isActive ? C.ink : C.ink2,
         opacity: isDragging ? 0.4 : 1,
         cursor: isRenaming ? 'default' : 'grab',
       }}
@@ -716,15 +767,8 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
           }}>
             {meta.label}
           </span>
-          {/* Default view star indicator (always visible when default) */}
-          {view.isDefault && (
-            <span style={{ fontSize: '12px', color: '#FF8B00', flexShrink: 0, lineHeight: 1 }} title="Default view">{'\u2605'}</span>
-          )}
           {hovered && !isDragging && (
             <div style={styles.viewActions} onClick={e => e.stopPropagation()}>
-              {!view.isDefault && onSetDefaultView && (
-                <button style={{ ...styles.actionBtn, color: '#FF8B00' }} title="Set as default view" onClick={() => onSetDefaultView(view.id)}>{'\u2606'}</button>
-              )}
               <button style={styles.actionBtn} title="Rename" onClick={onStartRename}>{'\u270F'}</button>
               {canDelete && (
                 <button
@@ -743,36 +787,38 @@ function ViewRow({ view, isActive, isRenaming, renameValue, hovered, depth, canD
 
 const styles = {
   sidebar: {
-    width: '230px', flexShrink: 0, background: '#fff', borderRight: '1px solid #DFE1E6',
-    display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingTop: '8px', paddingBottom: '8px',
+    width: '230px', flexShrink: 0, background: C.bgMuted, borderRight: `1px solid ${C.line}`,
+    display: 'flex', flexDirection: 'column', overflowY: 'auto', paddingBottom: '8px',
+    fontFamily: T.sans,
   },
   sidebarHeader: {
-    fontSize: '11px', fontWeight: 700, color: '#6B778C', textTransform: 'uppercase', letterSpacing: '0.5px',
+    fontSize: 10, fontWeight: 600, color: C.ink4, textTransform: 'uppercase', letterSpacing: 0.8,
     padding: '4px 12px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   },
   headerBtn: {
-    background: 'none', border: '1px solid #DFE1E6', borderRadius: '3px', padding: '2px 6px',
-    cursor: 'pointer', fontSize: '10px', color: '#6B778C', textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+    background: 'none', border: `1px solid ${C.line}`, borderRadius: 3, padding: '2px 6px',
+    cursor: 'pointer', fontSize: 10, color: C.ink3, textTransform: 'none', letterSpacing: 0, fontWeight: 500,
+    fontFamily: T.sans,
   },
   folderRow: {
     display: 'flex', alignItems: 'center', gap: '4px', padding: '5px 10px',
     cursor: 'pointer', margin: '1px 4px', userSelect: 'none', minHeight: '28px',
   },
-  folderIcon: { fontSize: '12px', color: '#6B778C', flexShrink: 0, width: '14px' },
-  folderName: { fontSize: '12px', fontWeight: 600, color: '#42526E', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  folderIcon: { fontSize: '12px', color: C.ink3, flexShrink: 0, width: '14px' },
+  folderName: { fontSize: '12px', fontWeight: 600, color: C.ink2, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewItem: {
     display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
     borderRadius: '4px', margin: '1px 4px', position: 'relative', minHeight: '30px',
   },
   viewName: { fontSize: '13px', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   viewActions: { display: 'flex', gap: '2px', flexShrink: 0, alignItems: 'center' },
-  actionBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', padding: '2px 4px', borderRadius: '3px', color: '#6B778C', lineHeight: 1 },
-  renameInput: { flex: 1, border: '1px solid #0052CC', borderRadius: '3px', padding: '3px 6px', fontSize: '12px', outline: 'none', color: '#172B4D', minWidth: 0 },
-  divider: { borderTop: '1px solid #F4F5F7', margin: '8px 4px' },
-  createViewBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#0073ea', padding: '6px 12px', textAlign: 'left', fontWeight: 500, width: '100%' },
+  actionBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', padding: '2px 4px', borderRadius: '3px', color: C.ink3, lineHeight: 1 },
+  renameInput: { flex: 1, border: `1px solid ${C.primary}`, borderRadius: '3px', padding: '3px 6px', fontSize: '12px', outline: 'none', color: C.ink, minWidth: 0 },
+  divider: { borderTop: `1px solid ${C.line}`, margin: '8px 4px' },
+  createViewBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: C.primary2, padding: '6px 12px', textAlign: 'left', fontWeight: 500, width: '100%', fontFamily: T.sans },
   newViewForm: { display: 'flex', alignItems: 'center', gap: '4px', padding: '4px 8px' },
-  newViewInput: { flex: 1, border: '1px solid #0052CC', borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', minWidth: 0, width: '100%' },
-  folderSelect: { border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', width: '100%', color: '#172B4D', background: '#fff' },
-  createConfirmBtn: { background: '#0073ea', color: '#fff', border: 'none', borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, flexShrink: 0 },
-  createCancelBtn: { background: 'none', border: '1px solid #DFE1E6', borderRadius: '3px', padding: '4px 6px', cursor: 'pointer', fontSize: '11px', color: '#6B778C', flexShrink: 0 },
+  newViewInput: { flex: 1, border: `1px solid ${C.primary}`, borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', minWidth: 0, width: '100%' },
+  folderSelect: { border: `1px solid ${C.line}`, borderRadius: '3px', padding: '4px 6px', fontSize: '12px', outline: 'none', width: '100%', color: C.ink, background: C.bg },
+  createConfirmBtn: { background: C.primary2, color: '#fff', border: 'none', borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, flexShrink: 0 },
+  createCancelBtn: { background: 'none', border: `1px solid ${C.line}`, borderRadius: '3px', padding: '4px 6px', cursor: 'pointer', fontSize: '11px', color: C.ink3, flexShrink: 0 },
 };

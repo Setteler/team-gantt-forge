@@ -345,7 +345,7 @@ resolver.define('deleteObjective', async ({ payload }) => {
 
 // ── Enabled Modules (opt-in module list) ──────────────────────────────────────
 
-const KNOWN_MODULE_IDS = new Set(['teams', 'risks', 'objectives', 'resources', 'reports']);
+const KNOWN_MODULE_IDS = new Set(['teams', 'risks', 'objectives', 'resources', 'reports', 'feature-status']);
 
 resolver.define('getEnabledModules', async () => {
   return (await storage.get('gantt_enabled_modules')) || [];
@@ -359,6 +359,29 @@ resolver.define('saveEnabledModules', async ({ payload }) => {
   const unique = [...new Set(validated)];
   await storage.set('gantt_enabled_modules', unique);
   return unique;
+});
+
+// ── Generic app data (module filters, preferences) ───────────────────────────
+const ALLOWED_APP_DATA_KEYS = new Set([
+  'featureStatus.customFieldFilter',
+  'resources.teamFilter',
+]);
+
+resolver.define('getAppData', async ({ payload }) => {
+  const { key } = payload;
+  if (!ALLOWED_APP_DATA_KEYS.has(key)) return null;
+  return (await storage.get(`gantt_appdata_${key}`)) ?? null;
+});
+
+resolver.define('saveAppData', async ({ payload }) => {
+  const { key, value } = payload;
+  if (!ALLOWED_APP_DATA_KEYS.has(key)) return null;
+  if (value === null || value === undefined) {
+    await storage.delete(`gantt_appdata_${key}`);
+  } else {
+    await storage.set(`gantt_appdata_${key}`, value);
+  }
+  return value;
 });
 
 // ── Views ─────────────────────────────────────────────────────────────────────
@@ -488,6 +511,56 @@ resolver.define('validateJql', async ({ payload }) => {
   } catch (err) {
     return { valid: false, count: -1, error: err.message || 'Validation failed' };
   }
+});
+
+resolver.define('updateIssueField', async ({ payload }) => {
+  const { key, fieldId, value } = payload;
+  const response = await api.asApp().requestJira(route`/rest/api/3/issue/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: { [fieldId]: value } }),
+  });
+  return { success: response.ok, status: response.status };
+});
+
+resolver.define('getIssueTransitions', async ({ payload }) => {
+  const { key } = payload;
+  const response = await api.asUser().requestJira(route`/rest/api/3/issue/${key}/transitions`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.transitions || [];
+});
+
+resolver.define('transitionIssue', async ({ payload }) => {
+  const { key, transitionId } = payload;
+  const response = await api.asUser().requestJira(route`/rest/api/3/issue/${key}/transitions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transition: { id: transitionId } }),
+  });
+  return { success: response.ok };
+});
+
+resolver.define('createIssueLink', async ({ payload }) => {
+  const { outwardIssueKey, inwardIssueKey } = payload;
+  const response = await api.asUser().requestJira(route`/rest/api/3/issueLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: { name: 'Blocks' },
+      outwardIssue: { key: outwardIssueKey },
+      inwardIssue: { key: inwardIssueKey },
+    }),
+  });
+  return { success: response.ok, status: response.status };
+});
+
+resolver.define('deleteIssueLink', async ({ payload }) => {
+  const { linkId } = payload;
+  const response = await api.asUser().requestJira(route`/rest/api/3/issueLink/${linkId}`, {
+    method: 'DELETE',
+  });
+  return { success: response.ok };
 });
 
 export const handler = resolver.getDefinitions();

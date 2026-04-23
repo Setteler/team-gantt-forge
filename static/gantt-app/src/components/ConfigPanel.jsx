@@ -81,6 +81,7 @@ export default function ConfigPanel({
   endDateField,
   viewType,
   listFields,
+  previewFields,
   orderByField,
   orderByDir,
   onProjectsChange,
@@ -91,6 +92,7 @@ export default function ConfigPanel({
   onStartDateFieldChange,
   onEndDateFieldChange,
   onListFieldsChange,
+  onPreviewFieldsChange,
   onViewTypeChange,
   onOrderByFieldChange,
   onOrderByDirChange,
@@ -111,6 +113,7 @@ export default function ConfigPanel({
   const [dateSearch1, setDateSearch1]     = useState('');
   const [dateSearch2, setDateSearch2]     = useState('');
   const [colSearch, setColSearch]         = useState('');
+  const [previewSearch, setPreviewSearch] = useState('');
   const [baselineName, setBaselineName]   = useState('');
   const [newHolidayDate, setNewHolidayDate] = useState('');
   const [newHolidayName, setNewHolidayName] = useState('');
@@ -192,6 +195,40 @@ export default function ConfigPanel({
                       <input type="checkbox" checked={checked} onChange={() => {
                         const cur = listFields || [];
                         onListFieldsChange(checked ? cur.filter(x => x !== f.id) : [...cur, f.id]);
+                      }} />
+                      <span style={styles.fieldName}>{f.name}</span>
+                      <span style={styles.fieldId}>{f.id}</span>
+                    </label>
+                  );
+                })
+              }
+            </div>
+          </div>
+        )}
+
+        {/* Bar hover preview fields — only for non-list views */}
+        {!isList && (
+          <div style={styles.section}>
+            <div style={styles.sectionTitle}>Bar hover preview fields</div>
+            <div style={{ fontSize: '11px', color: '#97A0AF', marginBottom: '2px' }}>
+              Choose which fields appear when hovering over a bar.
+            </div>
+            <input
+              style={{ ...styles.fieldSearch, border: '1px solid #DFE1E6', borderRadius: '4px', marginBottom: '4px' }}
+              placeholder="Search fields…"
+              value={previewSearch}
+              onChange={e => setPreviewSearch(e.target.value)}
+            />
+            <div style={{ ...styles.fieldList, maxHeight: '200px', border: '1px solid #DFE1E6', borderRadius: '4px', overflow: 'auto' }}>
+              {(availableFields || [])
+                .filter(f => !previewSearch || f.name.toLowerCase().includes(previewSearch.toLowerCase()) || f.id.toLowerCase().includes(previewSearch.toLowerCase()))
+                .map(f => {
+                  const checked = (previewFields || []).includes(f.id);
+                  return (
+                    <label key={f.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 10px', cursor: 'pointer', fontSize: '12px' }}>
+                      <input type="checkbox" checked={checked} onChange={() => {
+                        const cur = previewFields || [];
+                        onPreviewFieldsChange(checked ? cur.filter(x => x !== f.id) : [...cur, f.id]);
                       }} />
                       <span style={styles.fieldName}>{f.name}</span>
                       <span style={styles.fieldId}>{f.id}</span>
