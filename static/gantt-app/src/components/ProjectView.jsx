@@ -103,6 +103,7 @@ export default function ProjectView({
   listFields, availableFields, onListFieldsChange,
   onUpdateIssueField,
 }) {
+  const outerRef      = useRef(null);
   const bodyRef       = useRef(null);
   const lastMonthRef  = useRef(null);
   const rafScrollRef  = useRef(null);
@@ -379,6 +380,18 @@ export default function ProjectView({
       clearTimeout(headerClickTimerRef.current);
       headerClickTimerRef.current = null;
     }
+    // If the column was auto-collapsed (squeezed out by a narrow tree
+    // panel), widen the tree panel enough to bring every column back to
+    // its natural width instead of marking it user-collapsed.
+    if (autoCollapsed.has(fieldId) && !collapsedCols.has(fieldId)) {
+      const needed = nameColWidth + extraFields.reduce((a, f) => {
+        if (collapsedCols.has(f.id)) return a + COLLAPSED_COL_WIDTH;
+        if (colWidthOverrides[f.id]) return a + colWidthOverrides[f.id];
+        return a + FIELD_COL_NATURAL;
+      }, 0);
+      setTreeWidth(Math.min(TREE_WIDTH_MAX, needed));
+      return;
+    }
     setCollapsedCols(prev => {
       const next = new Set(prev);
       next.has(fieldId) ? next.delete(fieldId) : next.add(fieldId);
@@ -438,18 +451,20 @@ export default function ProjectView({
   function cancelEdit() { setEditingCell(null); }
 
   // Shared helper: run a column-resize drag. During the drag, `resizeGuideX`
-  // tracks the mouse x so a full-height blue line is rendered across the
-  // whole view as a visual ruler.
+  // stores the mouse x RELATIVE to the ProjectView's outer container so
+  // a blue guide line can be drawn inside the view only (not spilling out
+  // into the Jira chrome).
   function runColumnResizeDrag(e, getDelta, apply) {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
-    setResizeGuideX(startX);
+    const containerLeft = outerRef.current?.getBoundingClientRect()?.left || 0;
+    setResizeGuideX(startX - containerLeft);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     function onMove(ev) {
       apply(getDelta(ev.clientX - startX));
-      setResizeGuideX(ev.clientX);
+      setResizeGuideX(ev.clientX - containerLeft);
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove);
@@ -821,19 +836,40 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // Column widths — each column keeps its natural or user-set width regardless
-  // of treeWidth. If the sum of columns exceeds treeWidth, the tree panel
-  // simply clips content at its right edge; drag the tree/timeline divider
-  // wider to see more. (Use the per-column "Collapse" toggle to get the
-  // sliver-with-vertical-text behavior intentionally.)
+  // Column widths. Each column has a desired width (user-collapsed → 28,
+  // user override → that value, else natural 140). If the sum exceeds the
+  // tree-panel width, auto-collapse the rightmost columns to vertical
+  // slivers so they stay visible (stacked on the right) instead of being
+  // clipped — similar to Jira Advanced Roadmaps.
   const COLLAPSED_COL_WIDTH = 28;
   const nameColWidth = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
-  const widthOf = (fid) => {
-    if (collapsedCols.has(fid)) return COLLAPSED_COL_WIDTH;
-    if (colWidthOverrides[fid]) return colWidthOverrides[fid];
-    return FIELD_COL_NATURAL;
-  };
-  const treeContentWidth = nameColWidth + extraFields.reduce((a, f) => a + widthOf(f.id), 0);
+  const { widthByFieldId, autoCollapsed, treeContentWidth } = (() => {
+    const desired = {};
+    for (const f of extraFields) {
+      if (collapsedCols.has(f.id))       desired[f.id] = COLLAPSED_COL_WIDTH;
+      else if (colWidthOverrides[f.id])  desired[f.id] = colWidthOverrides[f.id];
+      else                                desired[f.id] = FIELD_COL_NATURAL;
+    }
+    const final = { ...desired };
+    const autoSet = new Set();
+    if (showTimeline) {
+      const available = Math.max(0, treeWidth - nameColWidth);
+      let sum = extraFields.reduce((a, f) => a + final[f.id], 0);
+      // Collapse from the rightmost un-collapsed column until we fit
+      for (let i = extraFields.length - 1; i >= 0 && sum > available; i--) {
+        const fid = extraFields[i].id;
+        if (final[fid] > COLLAPSED_COL_WIDTH) {
+          sum -= (final[fid] - COLLAPSED_COL_WIDTH);
+          final[fid] = COLLAPSED_COL_WIDTH;
+          if (!collapsedCols.has(fid)) autoSet.add(fid);
+        }
+      }
+    }
+    const totalWidth = nameColWidth + extraFields.reduce((a, f) => a + final[f.id], 0);
+    return { widthByFieldId: final, autoCollapsed: autoSet, treeContentWidth: totalWidth };
+  })();
+  const widthOf = (fid) => widthByFieldId[fid] ?? FIELD_COL_NATURAL;
+  const isColCollapsed = (fid) => widthByFieldId[fid] === COLLAPSED_COL_WIDTH;
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
   // When the user adds a new column (extraFields grows), auto-expand the tree
@@ -849,13 +885,13 @@ export default function ProjectView({
   }, [extraFields.length, treeContentWidth, treeWidth, showTimeline]);
 
   return (
-    <div style={s.outer}>
+    <div ref={outerRef} style={s.outer}>
       {/* Full-height blue guide line shown during any column resize drag —
-          helps visually align the new column boundary with the timeline. */}
+          scoped to the Project view (absolute inside s.outer). */}
       {resizeGuideX != null && (
         <div style={{
-          position: 'fixed', top: 0, bottom: 0, left: resizeGuideX - 1, width: 2,
-          background: '#0073ea', zIndex: 10000, pointerEvents: 'none',
+          position: 'absolute', top: 0, bottom: 0, left: resizeGuideX - 1, width: 2,
+          background: '#0073ea', zIndex: 50, pointerEvents: 'none',
           boxShadow: '0 0 0 1px rgba(0,115,234,0.15)',
         }} />
       )}
@@ -913,7 +949,7 @@ export default function ProjectView({
           {extraFields.map(f => {
             const isDragging = dragFieldId === f.id;
             const isDropTarget = dropBeforeFieldId === f.id && dragFieldId !== f.id;
-            const isCollapsedCol = collapsedCols.has(f.id);
+            const isCollapsedCol = isColCollapsed(f.id);
             const w = widthOf(f.id);
             const isSorted = sortField === f.id;
             // Click tracking for single- vs double-click (React fires both)
@@ -1044,7 +1080,7 @@ export default function ProjectView({
                   </div>
                   {/* Extra field cells — width follows header's widthOf(f.id). */}
                   {extraFields.map(f => {
-                    const isCollapsedCol = collapsedCols.has(f.id);
+                    const isCollapsedCol = isColCollapsed(f.id);
                     const w = widthOf(f.id);
                     const editorType = isCollapsedCol ? null : getEditorType(f.id, availableFields, sdf, edf);
                     const isEditing = editingCell && editingCell.issueKey === iss.key && editingCell.fieldId === f.id;
