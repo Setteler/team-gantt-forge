@@ -869,7 +869,11 @@ export default function ProjectView({
     return { widthByFieldId: final, autoCollapsed: autoSet, treeContentWidth: totalWidth };
   })();
   const widthOf = (fid) => widthByFieldId[fid] ?? FIELD_COL_NATURAL;
-  const isColCollapsed = (fid) => widthByFieldId[fid] === COLLAPSED_COL_WIDTH;
+  // Threshold at which a column flips from horizontal text to a vertical
+  // strip — avoids the mid-drag state where horizontal text has fully
+  // truncated away and the column looks empty.
+  const VERTICAL_TEXT_THRESHOLD = 60;
+  const isColCollapsed = (fid) => (widthByFieldId[fid] ?? FIELD_COL_NATURAL) < VERTICAL_TEXT_THRESHOLD;
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
   // When the user adds a new column (extraFields grows), auto-expand the tree
