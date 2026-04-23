@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from '@forge/bridge';
 
-const TREE_WIDTH_DEFAULT = 400;
-const TREE_WIDTH_MIN     = 180;
-const TREE_WIDTH_MAX     = 800;
+const NAME_COL_WIDTH_DEFAULT  = 340;
+const NAME_COL_WIDTH_MIN      = 240;
+const FIELD_COL_WIDTH_DEFAULT = 140;
+const FIELD_COL_WIDTH_MIN     = 80;
 const DAY_WIDTH     = 38;
 const ROW_HEIGHT    = 32;
 const HEADER_HEIGHT = 62;
@@ -34,7 +35,6 @@ function getParentKey(issue) {
   return null;
 }
 
-const FIELD_COL_WIDTH = 110;
 const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 function fmtDateShort(str) {
   if (!str) return '';
@@ -65,9 +65,9 @@ export default function ProjectView({
   const [selectedKey, setSelectedKey] = useState(null);
   const [hoveredKey, setHoveredKey]   = useState(null);
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
-  const [treeWidth, setTreeWidth]     = useState(TREE_WIDTH_DEFAULT);
+  const [nameWidth, setNameWidth]     = useState(NAME_COL_WIDTH_DEFAULT);
+  const [fieldWidths, setFieldWidths] = useState({}); // { fieldId: number }
   const [showTimeline, setShowTimeline] = useState(true);
-  const dividerDragRef = useRef(null);
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -181,18 +181,28 @@ export default function ProjectView({
     setCollapsed(new Set());
   }
 
-  // ── Divider drag ────────────────────────────────────────────────────────
-  function startDividerDrag(e) {
+  // ── Column resize (per-column, like market-standard tables) ─────────────
+  // target: 'name' for the Name column, or a fieldId for an extra field column
+  function startColumnResize(e, target) {
     e.preventDefault();
+    e.stopPropagation();
     const startX = e.clientX;
-    const startWidth = treeWidth;
+    const isName = target === 'name';
+    const startWidth = isName ? nameWidth : (fieldWidths[target] ?? FIELD_COL_WIDTH_DEFAULT);
+    const minWidth   = isName ? NAME_COL_WIDTH_MIN : FIELD_COL_WIDTH_MIN;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
     function onMove(ev) {
       const delta = ev.clientX - startX;
-      setTreeWidth(Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, startWidth + delta)));
+      const w = Math.max(minWidth, startWidth + delta);
+      if (isName) setNameWidth(w);
+      else setFieldWidths(prev => ({ ...prev, [target]: w }));
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -507,17 +517,24 @@ export default function ProjectView({
     const allF = availableFields || [];
     return (listFields || [])
       .filter(fid => fid && fid !== 'summary')
-      .map(fid => ({ id: fid, name: allF.find(f => f.id === fid)?.name || fid }));
-  }, [listFields, availableFields]);
+      .map(fid => ({
+        id: fid,
+        name: allF.find(f => f.id === fid)?.name || fid,
+        width: fieldWidths[fid] ?? FIELD_COL_WIDTH_DEFAULT,
+      }));
+  }, [listFields, availableFields, fieldWidths]);
 
-  const leftPanelWidth = showTimeline ? treeWidth : '100%';
+  // Tree panel width = sum of all column widths. Grows as fields are added,
+  // each column independently resizable via drag handle on its right edge.
+  const treeContentWidth = nameWidth + extraFields.reduce((a, f) => a + f.width, 0);
+  const leftPanelWidth   = showTimeline ? treeContentWidth : '100%';
 
   return (
     <div style={s.outer}>
       {/* ── Tree header (sticky top-left) ── */}
       <div style={{ ...s.treeHeader, width: leftPanelWidth }}>
         {/* Name column header */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', padding: '0 12px' }}>
+        <div style={{ width: nameWidth, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden', padding: '0 12px', boxSizing: 'border-box' }}>
           <span style={s.treeHeaderLabel}>Name</span>
           <span style={s.treeHeaderStats}>
             {issues.length} issue{issues.length !== 1 ? 's' : ''} &middot; {roots.length} root{roots.length !== 1 ? 's' : ''}
@@ -533,16 +550,29 @@ export default function ProjectView({
           >
             {showTimeline ? '⊣ Hide' : '⊢ Timeline'}
           </button>
+          {/* Name column resize handle */}
+          <div
+            onMouseDown={(e) => startColumnResize(e, 'name')}
+            style={s.colResizeHandle}
+            title="Drag to resize"
+          />
         </div>
         {/* Extra field column headers */}
         {extraFields.map(f => (
-          <div key={f.id} style={s.fieldColHeader}>{f.name}</div>
+          <div key={f.id} style={{ ...s.fieldColHeader, width: f.width, position: 'relative' }}>
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+            <div
+              onMouseDown={(e) => startColumnResize(e, f.id)}
+              style={s.colResizeHandle}
+              title="Drag to resize"
+            />
+          </div>
         ))}
       </div>
 
       {/* ── Timeline header (sticky top, scrolls horizontally with body) ── */}
       {showTimeline && (
-        <div style={{ ...s.timelineHeaderWrap, left: treeWidth }} id="project-header-scroll">
+        <div style={{ ...s.timelineHeaderWrap, left: treeContentWidth }} id="project-header-scroll">
           {renderTimelineHeader()}
         </div>
       )}
@@ -553,7 +583,7 @@ export default function ProjectView({
         style={s.body}
         onScroll={handleScroll}
       >
-        <div style={{ display: 'flex', minWidth: showTimeline ? treeWidth + totalWidth : '100%', height: totalContentHeight }}>
+        <div style={{ display: 'flex', minWidth: showTimeline ? treeContentWidth + totalWidth : '100%', height: totalContentHeight }}>
           {/* Tree + field columns — sticky left */}
           <div style={{ ...s.treeColumn, width: leftPanelWidth, position: showTimeline ? 'sticky' : 'relative' }}>
             {flatRows.map((row, idx) => {
@@ -577,8 +607,8 @@ export default function ProjectView({
                   onMouseEnter={() => setHoveredKey(row.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
-                  {/* Name cell */}
-                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden' }}>
+                  {/* Name cell — fixed width, never collapses below NAME_COL_WIDTH_MIN */}
+                  <div style={{ width: nameWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
                     {row.hasKids ? (
                       <span
                         style={s.toggle}
@@ -595,9 +625,9 @@ export default function ProjectView({
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
                     )}
                   </div>
-                  {/* Extra field cells */}
+                  {/* Extra field cells — each its own resizable width */}
                   {extraFields.map(f => (
-                    <div key={f.id} style={s.fieldCell}>
+                    <div key={f.id} style={{ ...s.fieldCell, width: f.width }}>
                       {renderFieldValue(iss.fields?.[f.id])}
                     </div>
                   ))}
@@ -605,14 +635,6 @@ export default function ProjectView({
               );
             })}
           </div>
-
-          {/* Draggable divider */}
-          <div
-            style={{ width: 5, flexShrink: 0, cursor: 'col-resize', position: 'sticky', left: treeWidth - 2, zIndex: 7, background: 'transparent', transition: 'background 0.1s' }}
-            onMouseDown={startDividerDrag}
-            onMouseEnter={e => e.currentTarget.style.background = '#0073ea44'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-          />
 
           {/* Timeline column */}
           {showTimeline && (
@@ -691,7 +713,7 @@ const s = {
     color: '#323338', flexShrink: 0,
   },
   fieldColHeader: {
-    width: FIELD_COL_WIDTH, flexShrink: 0,
+    flexShrink: 0, boxSizing: 'border-box',
     padding: '0 8px', fontSize: '10px', fontWeight: 700, color: '#6B778C',
     textTransform: 'uppercase', letterSpacing: '0.4px',
     borderLeft: '1px solid #e6e9ef', height: '100%',
@@ -699,12 +721,19 @@ const s = {
     whiteSpace: 'nowrap', overflow: 'hidden',
   },
   fieldCell: {
-    width: FIELD_COL_WIDTH, flexShrink: 0,
+    flexShrink: 0, boxSizing: 'border-box',
     padding: '0 8px', fontSize: '11px', color: '#42526E',
     borderLeft: '1px solid #f0f1f3',
     display: 'flex', alignItems: 'center',
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
     height: '100%',
+  },
+  // Column resize handle — sits on the right edge of each header column
+  colResizeHandle: {
+    position: 'absolute', right: 0, top: 0, bottom: 0, width: 6,
+    cursor: 'col-resize', zIndex: 5, background: 'transparent',
+    borderRight: '2px solid transparent',
+    transition: 'border-color 0.12s',
   },
 
   // ── Timeline header (sticky top, right of tree header) — left set dynamically ──
