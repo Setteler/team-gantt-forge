@@ -4,17 +4,19 @@ import { router, invoke } from '@forge/bridge';
 // ── Inline editor helpers (shared with IssuePreview; duplicated here so the
 //    Project view can stand alone without cross-imports) ─────────────────────
 const PRIORITY_OPTIONS = ['Highest', 'High', 'Medium', 'Low', 'Lowest'];
-const READ_ONLY_FIELD_IDS = new Set(['assignee', 'reporter', 'issuetype', 'project', 'resolution', 'created', 'updated', 'key']);
+// Status is explicitly read-only here (per user request) — clicking it should
+// not open any editor. Other read-only fields are ones we don't yet have
+// proper pickers for (user picker, project picker, etc.).
+const READ_ONLY_FIELD_IDS = new Set(['status', 'assignee', 'reporter', 'issuetype', 'project', 'resolution', 'created', 'updated', 'key']);
 function getSchemaType(fieldId, availableFields) {
   const f = availableFields?.find(f => f.id === fieldId);
   return f?.schemaType || f?.schema?.type || null;
 }
 function getEditorType(fieldId, availableFields, sdf, edf) {
+  if (READ_ONLY_FIELD_IDS.has(fieldId)) return null;
   if (fieldId === 'priority') return 'priority';
-  if (fieldId === 'status')   return 'status';
   if (fieldId === 'labels')   return 'labels';
   if (fieldId === 'duedate' || fieldId === sdf || fieldId === edf || fieldId === 'customfield_10015') return 'date';
-  if (READ_ONLY_FIELD_IDS.has(fieldId)) return null;
   const type = getSchemaType(fieldId, availableFields);
   if (type === 'date' || type === 'datetime') return 'date';
   if (type === 'string') return 'text';
@@ -98,6 +100,8 @@ export default function ProjectView({
   const [dropBeforeFieldId, setDropBeforeFieldId] = useState(null);
   // Inline-edit state: which cell is currently being edited (null = none)
   const [editingCell, setEditingCell] = useState(null); // { issueKey, fieldId, draft, loading?, transitions? } | null
+  // Bar drag state
+  const [draggingBar, setDraggingBar] = useState(null); // { key, delta } | null
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -295,6 +299,43 @@ export default function ProjectView({
     } catch (e) {
       console.error('updateIssueField failed', e);
     }
+  }
+
+  // ── Bar drag: reschedule an issue by dragging its bar left/right ────────
+  function startBarDrag(e, row) {
+    if (e.button !== 0) return;
+    if (row.hasKids) return; // don't drag roll-up brackets
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    let delta = 0;
+    setSelectedKey(row.key);
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    function onMove(ev) {
+      const raw = Math.round((ev.clientX - startX) / DAY_WIDTH);
+      if (raw !== delta) {
+        delta = raw;
+        setDraggingBar({ key: row.key, delta });
+      }
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setDraggingBar(null);
+      if (delta !== 0 && onUpdateIssue) {
+        const iss = issueByKey[row.key];
+        const sd = parseDate(iss?.fields?.[sdf]);
+        const ed = parseDate(iss?.fields?.[edf]);
+        if (sd && ed) {
+          onUpdateIssue(row.key, fmtISODate(addDays(sd, delta)), fmtISODate(addDays(ed, delta)));
+        }
+      }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   async function applyStatusTransition(transitionId, transitionName) {
@@ -544,7 +585,9 @@ export default function ProjectView({
     const clippedEnd   = Math.min(totalDays, endOff);
     if (clippedEnd <= clippedStart) return null;
 
-    const barLeft  = clippedStart * DAY_WIDTH;
+    // Apply live drag offset if this bar is being dragged
+    const dragOffset = (draggingBar && draggingBar.key === row.key) ? draggingBar.delta * DAY_WIDTH : 0;
+    const barLeft  = clippedStart * DAY_WIDTH + dragOffset;
     const barWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, DAY_WIDTH * 0.5);
     const overflowLeft  = startOff < 0;
     const overflowRight = endOff > totalDays;
@@ -594,12 +637,14 @@ export default function ProjectView({
 
     return (
       <g key={row.key}>
-        {/* Bar background */}
+        {/* Bar background — draggable */}
         <rect
           x={barLeft} y={barY}
           width={barWidth} height={barH}
           rx={4} fill={bgColor}
           stroke={borderColor} strokeWidth={1}
+          style={{ cursor: 'grab', pointerEvents: 'auto' }}
+          onMouseDown={(e) => startBarDrag(e, row)}
         />
         {/* Overflow arrows */}
         {overflowLeft && (
