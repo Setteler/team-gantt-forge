@@ -518,14 +518,16 @@ export default function ProjectView({
     );
   }
 
-  // ── Row grid lines (subtle separators) ───────────────────────────────────
+  // ── Row grid lines (draw above weekend/holiday shading so they stay
+  //    visible over colored backgrounds; color matches left row borders) ───
   const rowGridLines = useMemo(() => {
     const lines = [];
     for (let i = 0; i < flatRows.length; i++) {
       lines.push(
         <div key={`grid-${i}`} style={{
           position: 'absolute', left: 0, top: (i + 1) * ROW_HEIGHT - 1,
-          width: totalWidth, height: 1, background: '#f0f1f3', pointerEvents: 'none',
+          width: totalWidth, height: 1, background: '#E1E4E8',
+          pointerEvents: 'none', zIndex: 1,
         }} />
       );
     }
@@ -813,7 +815,7 @@ const s = {
   // ── Tree row ──
   treeRow: {
     display: 'flex', alignItems: 'center', gap: 4,
-    borderBottom: '1px solid #f0f1f3',
+    borderBottom: '1px solid #E1E4E8',
     cursor: 'pointer', userSelect: 'none', overflow: 'hidden',
     boxSizing: 'border-box',
   },
