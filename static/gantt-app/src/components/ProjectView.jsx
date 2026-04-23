@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from '@forge/bridge';
 
-const NAME_COL_NATURAL   = 340; // preferred Name-column width
+const NAME_COL_DEFAULT   = 340; // initial Name-column width (user can resize)
 const NAME_COL_MIN       = 240; // Name never collapses below this
+const NAME_COL_MAX       = 800;
 const FIELD_COL_NATURAL  = 140; // preferred width per extra field
 const FIELD_COL_MIN      = 28;  // collapsed field — only a sliver visible (like Jira Advanced Roadmaps)
 const TREE_WIDTH_DEFAULT = 600;
@@ -69,6 +70,7 @@ export default function ProjectView({
   const [hoveredKey, setHoveredKey]   = useState(null);
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
   const [treeWidth, setTreeWidth]     = useState(TREE_WIDTH_DEFAULT);
+  const [nameWidthUser, setNameWidthUser] = useState(NAME_COL_DEFAULT);
   const [showTimeline, setShowTimeline] = useState(true);
   const [dragFieldId, setDragFieldId] = useState(null);
   const [dropBeforeFieldId, setDropBeforeFieldId] = useState(null);
@@ -214,6 +216,28 @@ export default function ProjectView({
   function handleColDragEnd() {
     setDragFieldId(null);
     setDropBeforeFieldId(null);
+  }
+
+  // ── Name column drag: resize just the Name column ──────────────────────
+  function startNameColDrag(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = nameColWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    function onMove(ev) {
+      const delta = ev.clientX - startX;
+      setNameWidthUser(Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, startWidth + delta)));
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 
   // ── Divider drag: split between table (left) and timeline (right) ───────
@@ -561,22 +585,21 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // Columns auto-shrink to fit the table panel width (treeWidth). When the
-  // user drags the divider to give more room to the timeline, extra-field
-  // columns squeeze down to FIELD_COL_MIN (~28px) so only the column
-  // separator is visible — similar to Jira Advanced Roadmaps. Name column
-  // stays at NAME_COL_MIN so issue keys/titles remain readable.
+  // User controls the Name column width via its own drag handle. Extra field
+  // columns keep a natural width until the panel gets too narrow; then they
+  // shrink to FIELD_COL_MIN (just a sliver, Jira Advanced Roadmaps style).
+  // Name column never drops below NAME_COL_MIN.
   const { nameColWidth, fieldColWidth, treeContentWidth } = (() => {
     const n = extraFields.length;
-    const natural = NAME_COL_NATURAL + n * FIELD_COL_NATURAL;
-    // Plenty of room: use natural widths. Tree content may be narrower than
-    // the panel; that's fine, extra whitespace on the right.
+    const desiredName = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
+    const natural = desiredName + n * FIELD_COL_NATURAL;
     if (!showTimeline || treeWidth >= natural) {
-      return { nameColWidth: NAME_COL_NATURAL, fieldColWidth: FIELD_COL_NATURAL, treeContentWidth: natural };
+      return { nameColWidth: desiredName, fieldColWidth: FIELD_COL_NATURAL, treeContentWidth: natural };
     }
-    // Tight: shrink fields first, keeping Name at its minimum usable size.
-    const available = Math.max(treeWidth, NAME_COL_MIN + n * FIELD_COL_MIN);
-    const nameW = NAME_COL_MIN;
+    // Tight: keep Name at user-chosen width if possible, else shrink it too.
+    const minPossible = NAME_COL_MIN + n * FIELD_COL_MIN;
+    const available = Math.max(treeWidth, minPossible);
+    const nameW = Math.min(desiredName, Math.max(NAME_COL_MIN, available - n * FIELD_COL_MIN));
     const fieldW = n > 0 ? Math.max(FIELD_COL_MIN, (available - nameW) / n) : 0;
     return { nameColWidth: nameW, fieldColWidth: fieldW, treeContentWidth: nameW + n * fieldW };
   })();
@@ -587,8 +610,8 @@ export default function ProjectView({
       {/* ── Tree header (sticky top-left) ── */}
       <div style={{ ...s.treeHeader, width: leftPanelWidth, overflow: 'hidden' }}>
         <div style={{ display: 'flex', width: treeContentWidth, height: '100%' }}>
-          {/* Name column header */}
-          <div style={{ width: nameColWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', boxSizing: 'border-box', overflow: 'hidden' }}>
+          {/* Name column header — right-edge drag handle resizes just this column. */}
+          <div style={{ width: nameColWidth, flexShrink: 0, position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', boxSizing: 'border-box', overflow: 'hidden' }}>
             <span style={s.treeHeaderLabel}>Name</span>
             <span style={s.treeHeaderStats}>
               {issues.length} issue{issues.length !== 1 ? 's' : ''} &middot; {roots.length} root{roots.length !== 1 ? 's' : ''}
@@ -604,6 +627,18 @@ export default function ProjectView({
             >
               {showTimeline ? '⊣ Hide' : '⊢ Timeline'}
             </button>
+            {/* Drag handle on Name column's right edge */}
+            <div
+              onMouseDown={startNameColDrag}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+              style={{
+                position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
+                cursor: 'col-resize', zIndex: 13,
+                background: 'transparent', transition: 'background 0.12s',
+              }}
+              title="Drag to resize Name column"
+            />
           </div>
           {/* Extra field column headers — draggable to reorder */}
           {extraFields.map(f => {
@@ -668,7 +703,6 @@ export default function ProjectView({
                     background: isSelected ? '#DEEBFF' : isHovered ? '#F4F5F7' : '#fff',
                   }}
                   onClick={() => setSelectedKey(row.key)}
-                  onDoubleClick={() => router.open(`/browse/${row.key}`)}
                   onMouseEnter={() => setHoveredKey(row.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
@@ -684,7 +718,11 @@ export default function ProjectView({
                     ) : (
                       <span style={{ width: 20, flexShrink: 0 }} />
                     )}
-                    <span style={s.keyBadge}>{row.key}</span>
+                    <span
+                      style={{ ...s.keyBadge, cursor: 'pointer' }}
+                      onClick={(e) => { e.stopPropagation(); router.open(`/browse/${row.key}`); }}
+                      title="Open issue in new tab"
+                    >{row.key}</span>
                     <span style={s.summaryText}>{summary}</span>
                     {row.hasKids && (
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
@@ -831,12 +869,10 @@ const s = {
 
   // ── Tree row ──
   // Row has NO borderBottom — each cell draws its own borderBottom instead.
-  // Reason: the old row-level border rendered crisper under the name cell
-  // than under the field cells at some zoom levels (flex height:100% +
-  // overflow:hidden + border-box interaction). Per-cell borders are crisp
-  // everywhere.
+  // NO gap — gap:4 here used to shift every field column 4px right per cell
+  // vs. the header (which had no gap), breaking column-line alignment.
   treeRow: {
-    display: 'flex', alignItems: 'center', gap: 4,
+    display: 'flex', alignItems: 'center',
     cursor: 'pointer', userSelect: 'none', overflow: 'hidden',
     boxSizing: 'border-box',
   },
