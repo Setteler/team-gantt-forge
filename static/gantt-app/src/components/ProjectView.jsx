@@ -12,6 +12,24 @@ function getSchemaType(fieldId, availableFields) {
   const f = availableFields?.find(f => f.id === fieldId);
   return f?.schemaType || f?.schema?.type || null;
 }
+// Pull a single comparable primitive out of a field value for sorting.
+// Returns null for empty, number for numeric, string otherwise.
+function extractSortValue(raw) {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'number' || typeof raw === 'boolean') return typeof raw === 'number' ? raw : Number(raw);
+  if (typeof raw === 'string') {
+    // Dates as ISO strings sort lexicographically = chronologically
+    const n = Number(raw);
+    return Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(raw.trim()) ? n : raw.toLowerCase();
+  }
+  if (Array.isArray(raw)) {
+    const first = raw[0];
+    if (first == null) return null;
+    return typeof first === 'string' ? first.toLowerCase() : (first.name || first.displayName || first.value || first.key || '').toString().toLowerCase();
+  }
+  return (raw.name || raw.displayName || raw.value || raw.key || '').toString().toLowerCase();
+}
+
 function getEditorType(fieldId, availableFields, sdf, edf) {
   if (READ_ONLY_FIELD_IDS.has(fieldId)) return null;
   if (fieldId === 'priority') return 'priority';
@@ -102,6 +120,12 @@ export default function ProjectView({
   const [editingCell, setEditingCell] = useState(null); // { issueKey, fieldId, draft, loading?, transitions? } | null
   // Bar drag state
   const [draggingBar, setDraggingBar] = useState(null); // { key, delta } | null
+  // Sort by field column (click header to sort)
+  const [sortField, setSortField] = useState(null);      // fieldId | null
+  const [sortDir, setSortDir]     = useState('desc');    // 'asc' | 'desc'
+  // Collapsed columns — double-click header to collapse to a narrow strip
+  // with vertical text. Double-click again to expand.
+  const [collapsedCols, setCollapsedCols] = useState(new Set());
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -169,11 +193,26 @@ export default function ProjectView({
     return result;
   }
 
-  // ── Flatten tree into visible rows ───────────────────────────────────────
+  // ── Flatten tree into visible rows, sorted by active sort column ────────
+  // Sort is applied at each level (siblings within a parent sort together).
   const flatRows = useMemo(() => {
     const rows = [];
+    function sortKeys(keys) {
+      if (!sortField) return keys;
+      const sign = sortDir === 'asc' ? 1 : -1;
+      return [...keys].sort((a, b) => {
+        const va = extractSortValue(issueByKey[a]?.fields?.[sortField]);
+        const vb = extractSortValue(issueByKey[b]?.fields?.[sortField]);
+        // null / undefined always go to the bottom (regardless of direction)
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') return sign * (va - vb);
+        return sign * String(va).localeCompare(String(vb));
+      });
+    }
     function walk(keys, depth, visited) {
-      for (const key of keys) {
+      for (const key of sortKeys(keys)) {
         if (visited.has(key)) continue;
         const nextVisited = new Set(visited);
         nextVisited.add(key);
@@ -194,7 +233,7 @@ export default function ProjectView({
     }
     walk(roots.map(r => r.key), 0, new Set());
     return rows;
-  }, [roots, childrenByKey, issueByKey, collapsed]);
+  }, [roots, childrenByKey, issueByKey, collapsed, sortField, sortDir]);
 
   // ── Expand/Collapse ──────────────────────────────────────────────────────
   function toggleNode(key) {
@@ -299,6 +338,42 @@ export default function ProjectView({
     } catch (e) {
       console.error('updateIssueField failed', e);
     }
+  }
+
+  // ── Header click & double-click: sort by column / collapse column ───────
+  // React fires onClick THEN onDoubleClick on a double-click. We delay the
+  // sort toggle by ~220ms so that if a double-click comes, we cancel it.
+  const headerClickTimerRef = useRef(null);
+  function handleHeaderClick(e, fieldId) {
+    e.stopPropagation();
+    // Don't trigger sort when the drag-reorder just finished
+    if (dragFieldId) return;
+    if (headerClickTimerRef.current) clearTimeout(headerClickTimerRef.current);
+    headerClickTimerRef.current = setTimeout(() => {
+      setSortField(prevField => {
+        if (prevField === fieldId) {
+          // same field → toggle direction
+          setSortDir(d => d === 'desc' ? 'asc' : 'desc');
+          return prevField;
+        }
+        // new field → start descending
+        setSortDir('desc');
+        return fieldId;
+      });
+      headerClickTimerRef.current = null;
+    }, 220);
+  }
+  function handleHeaderDoubleClick(e, fieldId) {
+    e.stopPropagation();
+    if (headerClickTimerRef.current) {
+      clearTimeout(headerClickTimerRef.current);
+      headerClickTimerRef.current = null;
+    }
+    setCollapsedCols(prev => {
+      const next = new Set(prev);
+      next.has(fieldId) ? next.delete(fieldId) : next.add(fieldId);
+      return next;
+    });
   }
 
   // ── Bar drag: reschedule an issue by dragging its bar left/right ────────
@@ -723,23 +798,25 @@ export default function ProjectView({
       }));
   }, [listFields, availableFields]);
 
-  // User controls the Name column width via its own drag handle. Extra field
-  // columns keep a natural width until the panel gets too narrow; then they
-  // shrink to FIELD_COL_MIN (just a sliver, Jira Advanced Roadmaps style).
-  // Name column never drops below NAME_COL_MIN.
-  const { nameColWidth, fieldColWidth, treeContentWidth } = (() => {
-    const n = extraFields.length;
+  // Per-column width. Collapsed columns always render at COLLAPSED_COL_WIDTH
+  // (just enough for vertical column-name text). Normal columns share the
+  // remaining space.
+  const COLLAPSED_COL_WIDTH = 28;
+  const { nameColWidth, widthOf, treeContentWidth } = (() => {
     const desiredName = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
-    const natural = desiredName + n * FIELD_COL_NATURAL;
+    const collapsedN = extraFields.filter(f => collapsedCols.has(f.id)).length;
+    const normalN    = extraFields.length - collapsedN;
+    const collapsedTotal = collapsedN * COLLAPSED_COL_WIDTH;
+    const natural = desiredName + collapsedTotal + normalN * FIELD_COL_NATURAL;
+    const widthFor = (w) => (fid) => collapsedCols.has(fid) ? COLLAPSED_COL_WIDTH : w;
     if (!showTimeline || treeWidth >= natural) {
-      return { nameColWidth: desiredName, fieldColWidth: FIELD_COL_NATURAL, treeContentWidth: natural };
+      return { nameColWidth: desiredName, widthOf: widthFor(FIELD_COL_NATURAL), treeContentWidth: natural };
     }
-    // Tight: keep Name at user-chosen width if possible, else shrink it too.
-    const minPossible = NAME_COL_MIN + n * FIELD_COL_MIN;
-    const available = Math.max(treeWidth, minPossible);
-    const nameW = Math.min(desiredName, Math.max(NAME_COL_MIN, available - n * FIELD_COL_MIN));
-    const fieldW = n > 0 ? Math.max(FIELD_COL_MIN, (available - nameW) / n) : 0;
-    return { nameColWidth: nameW, fieldColWidth: fieldW, treeContentWidth: nameW + n * fieldW };
+    // Tight: shrink normal columns first, keep collapsed fixed.
+    const availableForNormal = Math.max(0, treeWidth - desiredName - collapsedTotal);
+    const normalW = normalN > 0 ? Math.max(FIELD_COL_MIN, availableForNormal / normalN) : 0;
+    const total = desiredName + collapsedTotal + normalN * normalW;
+    return { nameColWidth: desiredName, widthOf: widthFor(normalW), treeContentWidth: total };
   })();
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
@@ -778,10 +855,15 @@ export default function ProjectView({
               title="Drag to resize Name column"
             />
           </div>
-          {/* Extra field column headers — draggable to reorder */}
+          {/* Extra field column headers — single-click sorts, double-click
+              collapses, drag reorders. */}
           {extraFields.map(f => {
             const isDragging = dragFieldId === f.id;
             const isDropTarget = dropBeforeFieldId === f.id && dragFieldId !== f.id;
+            const isCollapsedCol = collapsedCols.has(f.id);
+            const w = widthOf(f.id);
+            const isSorted = sortField === f.id;
+            // Click tracking for single- vs double-click (React fires both)
             return (
               <div
                 key={f.id}
@@ -790,17 +872,40 @@ export default function ProjectView({
                 onDragOver={(e) => handleColDragOver(e, f.id)}
                 onDrop={(e) => handleColDrop(e, f.id)}
                 onDragEnd={handleColDragEnd}
-                title={`${f.name} — drag to reorder`}
+                onClick={(e) => handleHeaderClick(e, f.id)}
+                onDoubleClick={(e) => handleHeaderDoubleClick(e, f.id)}
+                title={isCollapsedCol ? `${f.name} (collapsed — double-click to expand)` : `${f.name} — click to sort, double-click to collapse`}
                 style={{
                   ...s.fieldColHeader,
-                  width: fieldColWidth,
-                  cursor: 'grab',
+                  width: w,
+                  cursor: 'pointer',
                   opacity: isDragging ? 0.4 : 1,
                   boxShadow: isDropTarget ? 'inset 2px 0 0 #0073ea' : 'none',
                   userSelect: 'none',
+                  padding: isCollapsedCol ? 0 : s.fieldColHeader.padding,
+                  color: isSorted ? '#0052CC' : s.fieldColHeader.color,
                 }}
               >
-                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                {isCollapsedCol ? (
+                  <span style={{
+                    writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap', fontSize: 10, fontWeight: 700,
+                    color: isSorted ? '#0052CC' : '#6B778C',
+                    textTransform: 'uppercase', letterSpacing: 0.3,
+                    padding: '8px 0',
+                  }}>
+                    {f.name}{isSorted ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                  </span>
+                ) : (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                    {isSorted && (
+                      <span style={{ color: '#0052CC', fontSize: 10, flexShrink: 0 }}>
+                        {sortDir === 'asc' ? '▲' : '▼'}
+                      </span>
+                    )}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -866,12 +971,13 @@ export default function ProjectView({
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
                     )}
                   </div>
-                  {/* Extra field cells — each fixed width, each owns its own borderBottom.
-                     Click a cell to edit (for editable field types). */}
+                  {/* Extra field cells — width follows header's widthOf(f.id). */}
                   {extraFields.map(f => {
-                    const editorType = getEditorType(f.id, availableFields, sdf, edf);
+                    const isCollapsedCol = collapsedCols.has(f.id);
+                    const w = widthOf(f.id);
+                    const editorType = isCollapsedCol ? null : getEditorType(f.id, availableFields, sdf, edf);
                     const isEditing = editingCell && editingCell.issueKey === iss.key && editingCell.fieldId === f.id;
-                    const cellBase = { ...s.fieldCell, width: fieldColWidth, borderBottom: '1px solid #E1E4E8' };
+                    const cellBase = { ...s.fieldCell, width: w, borderBottom: '1px solid #E1E4E8' };
                     if (isEditing) {
                       return (
                         <div
@@ -895,11 +1001,12 @@ export default function ProjectView({
                         style={{
                           ...cellBase,
                           cursor: editorType ? 'text' : 'default',
+                          padding: isCollapsedCol ? 0 : cellBase.padding,
                         }}
                         onClick={editorType ? (e) => { e.stopPropagation(); startEditCell(iss, f.id); } : undefined}
                         title={editorType ? 'Click to edit' : undefined}
                       >
-                        {renderFieldValue(iss.fields?.[f.id])}
+                        {isCollapsedCol ? null : renderFieldValue(iss.fields?.[f.id])}
                       </div>
                     );
                   })}
