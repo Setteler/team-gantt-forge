@@ -1015,6 +1015,7 @@ export default function App() {
               onVisibleMonthChange={(y, m) => { setVisYear(y); setVisMonth(m); }}
               listFields={listFields}
               availableFields={availableFields}
+              onListFieldsChange={setListFields}
             />
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'

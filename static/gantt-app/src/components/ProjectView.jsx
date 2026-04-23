@@ -56,7 +56,7 @@ export default function ProjectView({
   issues, today, startDateField, endDateField,
   onUpdateIssue, holidays,
   scrollToTarget, onVisibleMonthChange,
-  listFields, availableFields,
+  listFields, availableFields, onListFieldsChange,
 }) {
   const bodyRef       = useRef(null);
   const lastMonthRef  = useRef(null);
@@ -68,6 +68,8 @@ export default function ProjectView({
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
   const [treeWidth, setTreeWidth]     = useState(TREE_WIDTH_DEFAULT);
   const [showTimeline, setShowTimeline] = useState(true);
+  const [dragFieldId, setDragFieldId] = useState(null);
+  const [dropBeforeFieldId, setDropBeforeFieldId] = useState(null);
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -181,6 +183,37 @@ export default function ProjectView({
     setCollapsed(new Set());
   }
 
+  // ── Column drag-and-drop reorder (extra fields only; Name is fixed) ─────
+  function handleColDragStart(e, fieldId) {
+    setDragFieldId(fieldId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', fieldId);
+  }
+  function handleColDragOver(e, overFieldId) {
+    if (!dragFieldId || dragFieldId === overFieldId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDropBeforeFieldId(overFieldId);
+  }
+  function handleColDrop(e, overFieldId) {
+    e.preventDefault();
+    if (!dragFieldId || !onListFieldsChange) return;
+    const current = [...(listFields || [])];
+    const fromIdx = current.indexOf(dragFieldId);
+    const toIdx   = current.indexOf(overFieldId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    current.splice(fromIdx, 1);
+    const insertAt = current.indexOf(overFieldId);
+    current.splice(insertAt, 0, dragFieldId);
+    onListFieldsChange(current);
+    setDragFieldId(null);
+    setDropBeforeFieldId(null);
+  }
+  function handleColDragEnd() {
+    setDragFieldId(null);
+    setDropBeforeFieldId(null);
+  }
+
   // ── Divider drag: split between table (left) and timeline (right) ───────
   function startDividerDrag(e) {
     e.preventDefault();
@@ -240,12 +273,19 @@ export default function ProjectView({
   }, []);
 
   // Scroll to target (navigation arrows / Today button)
+  // App.jsx sends `{ today: true }` for the Today button and `{ year, month }`
+  // for month-arrow navigation — handle both.
   useEffect(() => {
     if (!scrollToTarget || !bodyRef.current) return;
-    const focusDate = new Date(scrollToTarget.year, scrollToTarget.month, 1);
-    const off = Math.max(0, daysBetween(bufferStart, focusDate)) * DAY_WIDTH;
+    let off;
+    if (scrollToTarget.today) {
+      off = Math.max(0, todayOff - 60);
+    } else {
+      const focusDate = new Date(scrollToTarget.year, scrollToTarget.month, 1);
+      off = Math.max(0, daysBetween(bufferStart, focusDate)) * DAY_WIDTH;
+    }
     bodyRef.current.scrollLeft = off;
-  }, [scrollToTarget, bufferStart]);
+  }, [scrollToTarget, bufferStart, todayOff]);
 
   // Scroll to today on initial mount
   useEffect(() => {
@@ -546,12 +586,32 @@ export default function ProjectView({
               {showTimeline ? '⊣ Hide' : '⊢ Timeline'}
             </button>
           </div>
-          {/* Extra field column headers */}
-          {extraFields.map(f => (
-            <div key={f.id} style={{ ...s.fieldColHeader, width: FIELD_COL_WIDTH }}>
-              <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-            </div>
-          ))}
+          {/* Extra field column headers — draggable to reorder */}
+          {extraFields.map(f => {
+            const isDragging = dragFieldId === f.id;
+            const isDropTarget = dropBeforeFieldId === f.id && dragFieldId !== f.id;
+            return (
+              <div
+                key={f.id}
+                draggable
+                onDragStart={(e) => handleColDragStart(e, f.id)}
+                onDragOver={(e) => handleColDragOver(e, f.id)}
+                onDrop={(e) => handleColDrop(e, f.id)}
+                onDragEnd={handleColDragEnd}
+                title="Drag to reorder"
+                style={{
+                  ...s.fieldColHeader,
+                  width: FIELD_COL_WIDTH,
+                  cursor: 'grab',
+                  opacity: isDragging ? 0.4 : 1,
+                  boxShadow: isDropTarget ? 'inset 2px 0 0 #0073ea' : 'none',
+                  userSelect: 'none',
+                }}
+              >
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
