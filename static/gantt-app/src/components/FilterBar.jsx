@@ -78,6 +78,8 @@ function FilterChip({ fieldId, fieldName, selected, scope, issues, availableIssu
   const popRef = useRef(null);
 
   // Aggregate distinct values from loaded issues (no extra API call).
+  // Sort numerically when every value parses as a number (story points,
+  // estimates, etc.), otherwise alphabetically.
   const options = useMemo(() => {
     const counts = new Map();
     for (const iss of issues || []) {
@@ -85,9 +87,13 @@ function FilterChip({ fieldId, fieldName, selected, scope, issues, availableIssu
         counts.set(v, (counts.get(v) || 0) + 1);
       }
     }
-    return Array.from(counts.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([value, count]) => ({ value, count }));
+    const entries = Array.from(counts.entries());
+    const allNumeric = entries.length > 0 && entries.every(([v]) => v !== '' && !Number.isNaN(Number(v)));
+    entries.sort(allNumeric
+      ? (a, b) => Number(a[0]) - Number(b[0])
+      : (a, b) => a[0].localeCompare(b[0])
+    );
+    return entries.map(([value, count]) => ({ value, count }));
   }, [issues, fieldId]);
 
   useEffect(() => {

@@ -17,9 +17,10 @@ const DEFAULT_START_FIELD = 'customfield_10015';
 const DEFAULT_END_FIELD   = 'duedate';
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
-// Free-text fields don't make sense as filter chips (value-picker would show
-// every unique summary/description string).
-const FREE_TEXT_FIELD_IDS = new Set(['summary', 'description', 'environment']);
+// Every field type can be a filter — the value picker aggregates distinct
+// values from the loaded issues and supports search, so text/numeric/date
+// fields all work. Keep this empty; left here for easy future overrides.
+const FREE_TEXT_FIELD_IDS = new Set();
 
 function filterFields(list, search) {
   if (!search) return list;
