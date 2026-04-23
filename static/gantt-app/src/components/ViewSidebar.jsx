@@ -5,7 +5,7 @@ import { C, T } from '../tokens';
 const VIEW_TYPE_META = {
   timeline: { label: 'Gantt',   color: C.primary2, dot: C.primary2 },
   list:     { label: 'List',    color: C.success,  dot: C.success },
-  project:  { label: 'Project', color: '#0f8a7a',  dot: '#0f8a7a' },
+  project:  { label: 'Project', color: '#7c3aad',  dot: '#7c3aad' },
 };
 
 // Fallback for legacy view types (tree, roadmap) that may exist in saved data
