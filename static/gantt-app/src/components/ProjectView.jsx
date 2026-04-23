@@ -923,17 +923,17 @@ export default function ProjectView({
           boxShadow: '0 0 0 1px rgba(0,115,234,0.15)',
         }} />
       )}
-      {/* Table ↔ Timeline divider — spans header + body so you can grab it
-          either at the top (between DUE DATE header and day-of-week header)
-          or anywhere down the timeline column. */}
+      {/* Table ↔ Timeline divider — placed strictly after the tree panel's
+          right edge (x = treeWidth) so it no longer overlaps the last
+          column's own drag handle, which lived around treeWidth-3. */}
       {showTimeline && (
         <div
           onMouseDown={startDividerDrag}
           onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
           style={{
-            position: 'absolute', left: treeWidth - 2, top: 0, bottom: 0,
-            width: 5, cursor: 'col-resize', zIndex: 14,
+            position: 'absolute', left: treeWidth, top: 0, bottom: 0,
+            width: 6, cursor: 'col-resize', zIndex: 14,
             background: 'transparent', transition: 'background 0.12s',
           }}
           title="Drag to change table / timeline split"
@@ -965,8 +965,8 @@ export default function ProjectView({
               onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               style={{
-                position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
-                cursor: 'col-resize', zIndex: 13,
+                position: 'absolute', right: 0, top: 0, bottom: 0, width: 6,
+                cursor: 'col-resize', zIndex: 15,
                 background: 'transparent', transition: 'background 0.12s',
               }}
               title="Drag to resize Name column"
@@ -1040,15 +1040,17 @@ export default function ProjectView({
                   </span>
                 )}
                 {/* Right-edge resize handle — always available so a collapsed
-                    column can be dragged back open. */}
+                    column can be dragged back open. Sits just inside the
+                    column's right edge (right:0) to avoid overlapping the
+                    tree/timeline divider on the last column. */}
                 <div
                   onMouseDown={(e) => startFieldColDrag(e, f.id)}
                   onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
                   onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                   onClick={(e) => e.stopPropagation()}
                   style={{
-                    position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
-                    cursor: 'col-resize', zIndex: 13,
+                    position: 'absolute', right: 0, top: 0, bottom: 0, width: 6,
+                    cursor: 'col-resize', zIndex: 15,
                     background: 'transparent', transition: 'background 0.12s',
                   }}
                   title="Drag to resize column"
