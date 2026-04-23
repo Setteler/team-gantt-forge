@@ -859,6 +859,22 @@ export default function ProjectView({
           boxShadow: '0 0 0 1px rgba(0,115,234,0.15)',
         }} />
       )}
+      {/* Table ↔ Timeline divider — spans header + body so you can grab it
+          either at the top (between DUE DATE header and day-of-week header)
+          or anywhere down the timeline column. */}
+      {showTimeline && (
+        <div
+          onMouseDown={startDividerDrag}
+          onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          style={{
+            position: 'absolute', left: treeWidth - 2, top: 0, bottom: 0,
+            width: 5, cursor: 'col-resize', zIndex: 14,
+            background: 'transparent', transition: 'background 0.12s',
+          }}
+          title="Drag to change table / timeline split"
+        />
+      )}
       {/* ── Tree header (sticky top-left) ── */}
       <div style={{ ...s.treeHeader, width: leftPanelWidth, overflow: 'hidden' }}>
         <div style={{ display: 'flex', width: treeContentWidth, height: '100%' }}>
@@ -1070,20 +1086,8 @@ export default function ProjectView({
             })}
           </div>
 
-          {/* Table ↔ Timeline divider */}
-          {showTimeline && (
-            <div
-              onMouseDown={startDividerDrag}
-              onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-              style={{
-                width: 5, flexShrink: 0, cursor: 'col-resize',
-                position: 'sticky', left: treeWidth - 2, zIndex: 8,
-                background: 'transparent', transition: 'background 0.12s',
-              }}
-              title="Drag to change table / timeline split"
-            />
-          )}
+          {/* (Table ↔ Timeline divider rendered at the outer root so it
+              spans header + body — see render below the outer <div>.) */}
 
           {/* Timeline column */}
           {showTimeline && (
