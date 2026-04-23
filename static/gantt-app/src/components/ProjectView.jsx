@@ -47,6 +47,7 @@ const NAME_COL_MIN       = 240; // Name never collapses below this
 const NAME_COL_MAX       = 800;
 const FIELD_COL_NATURAL  = 140; // preferred width per extra field
 const FIELD_COL_MIN      = 28;  // collapsed field — only a sliver visible (like Jira Advanced Roadmaps)
+const FIELD_COL_MAX      = 400; // upper bound when user drags a column wider
 const TREE_WIDTH_DEFAULT = 760; // Name (340) + 3 × field (140) at natural size
 const TREE_WIDTH_MIN     = 260;
 const TREE_WIDTH_MAX     = 1600;
@@ -501,7 +502,7 @@ export default function ProjectView({
     runColumnResizeDrag(e, d => d, d => {
       setColWidthOverrides(prev => ({
         ...prev,
-        [fieldId]: Math.max(COLLAPSED_COL_WIDTH, startW + d),
+        [fieldId]: Math.max(COLLAPSED_COL_WIDTH, Math.min(FIELD_COL_MAX, startW + d)),
       }));
     });
   }
@@ -1003,23 +1004,30 @@ export default function ProjectView({
                   color: isSorted ? '#0052CC' : s.fieldColHeader.color,
                 }}
               >
-                {isCollapsedCol ? (
-                  <span style={{
-                    writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-                    whiteSpace: 'nowrap',
-                    // Shrink font once the column itself is very narrow so
-                    // long names still fit vertically inside the header.
-                    fontSize: w < 24 ? 8 : 9,
-                    fontWeight: 700,
-                    color: isSorted ? '#0052CC' : '#6B778C',
-                    textTransform: 'uppercase', letterSpacing: 0.2,
-                    padding: 0, margin: 0,
-                    maxHeight: '100%', overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}>
-                    {f.name} {isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
-                  </span>
-                ) : (
+                {isCollapsedCol ? (() => {
+                  // Vertical text can't rely on text-overflow:ellipsis for
+                  // the writing-mode axis, so truncate in JS. Max chars is
+                  // the header height (62px) minus ~14px for the sort glyph,
+                  // divided by per-char vertical advance (~fontSize).
+                  const fontSize = w < 24 ? 8 : 9;
+                  const sortGlyph = isSorted ? (sortDir === 'asc' ? '↑' : '↓') : '⇅';
+                  const maxChars = Math.max(3, Math.floor((HEADER_HEIGHT - 14) / (fontSize + 1)));
+                  const label = f.name.length > maxChars
+                    ? f.name.slice(0, maxChars - 1) + '…'
+                    : f.name;
+                  return (
+                    <span style={{
+                      writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+                      whiteSpace: 'nowrap',
+                      fontSize, fontWeight: 700,
+                      color: isSorted ? '#0052CC' : '#6B778C',
+                      textTransform: 'uppercase', letterSpacing: 0.2,
+                      padding: 0, margin: 0,
+                    }}>
+                      {label} {sortGlyph}
+                    </span>
+                  );
+                })() : (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 4, width: '100%', minWidth: 0 }}>
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
                     {/* Always-visible sort indicator so users know the column is sortable */}
