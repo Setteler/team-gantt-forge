@@ -553,6 +553,8 @@ export default function ProjectView({
           {/* Name column resize handle */}
           <div
             onMouseDown={(e) => startColumnResize(e, 'name')}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             style={s.colResizeHandle}
             title="Drag to resize"
           />
@@ -563,6 +565,8 @@ export default function ProjectView({
             <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
             <div
               onMouseDown={(e) => startColumnResize(e, f.id)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = '#0073ea'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               style={s.colResizeHandle}
               title="Drag to resize"
             />
@@ -730,10 +734,9 @@ const s = {
   },
   // Column resize handle — sits on the right edge of each header column
   colResizeHandle: {
-    position: 'absolute', right: 0, top: 0, bottom: 0, width: 6,
-    cursor: 'col-resize', zIndex: 5, background: 'transparent',
-    borderRight: '2px solid transparent',
-    transition: 'border-color 0.12s',
+    position: 'absolute', right: -3, top: 0, bottom: 0, width: 6,
+    cursor: 'col-resize', zIndex: 10, background: 'transparent',
+    transition: 'background 0.12s',
   },
 
   // ── Timeline header (sticky top, right of tree header) — left set dynamically ──

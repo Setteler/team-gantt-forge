@@ -326,7 +326,10 @@ export default function Toolbar({
   // ── Active indicators ──────────────────────────────────────────────────────
   const groupByActive   = !!(groupByFields && groupByFields.some(f => f));
   const isHierarchical  = viewType === 'project' || viewType === 'tree';
-  const isList          = viewType === 'list';
+  // Views with a tabular column area: List and Project both render columns
+  // driven by listFields, so the Fields popover should edit columns for both.
+  // Only Gantt uses the "hover preview fields" mode.
+  const isList          = viewType === 'list' || viewType === 'project';
 
   let filterBadge = 0;
   if (jqlFilter?.trim())           filterBadge++;
@@ -638,7 +641,7 @@ export default function Toolbar({
           <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f0f1f3' }}>
             <div style={{ fontSize: '13px', fontWeight: 700, color: '#172B4D' }}>{isList ? 'Columns' : 'Hover preview fields'}</div>
             <div style={{ fontSize: '11px', color: '#97A0AF', marginTop: '2px' }}>
-              {isList ? 'Choose which columns appear in list view' : 'Fields shown when hovering over a bar'}
+              {isList ? 'Choose which columns appear in the table' : 'Fields shown when hovering over a bar'}
             </div>
           </div>
           <div style={{ padding: '10px 16px' }}>
