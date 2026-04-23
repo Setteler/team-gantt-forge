@@ -672,8 +672,8 @@ export default function ProjectView({
                   onMouseEnter={() => setHoveredKey(row.key)}
                   onMouseLeave={() => setHoveredKey(null)}
                 >
-                  {/* Name cell — fixed width, never collapses */}
-                  <div style={{ width: nameColWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }}>
+                  {/* Name cell — fixed width, never collapses. Owns its own borderBottom. */}
+                  <div style={{ width: nameColWidth, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4, paddingLeft: 8 + indent, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box', height: '100%', borderBottom: '1px solid #E1E4E8' }}>
                     {row.hasKids ? (
                       <span
                         style={s.toggle}
@@ -690,9 +690,9 @@ export default function ProjectView({
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
                     )}
                   </div>
-                  {/* Extra field cells — each fixed width */}
+                  {/* Extra field cells — each fixed width, each owns its own borderBottom. */}
                   {extraFields.map(f => (
-                    <div key={f.id} style={{ ...s.fieldCell, width: fieldColWidth }}>
+                    <div key={f.id} style={{ ...s.fieldCell, width: fieldColWidth, borderBottom: '1px solid #E1E4E8' }}>
                       {renderFieldValue(iss.fields?.[f.id])}
                     </div>
                   ))}
@@ -830,9 +830,13 @@ const s = {
   },
 
   // ── Tree row ──
+  // Row has NO borderBottom — each cell draws its own borderBottom instead.
+  // Reason: the old row-level border rendered crisper under the name cell
+  // than under the field cells at some zoom levels (flex height:100% +
+  // overflow:hidden + border-box interaction). Per-cell borders are crisp
+  // everywhere.
   treeRow: {
     display: 'flex', alignItems: 'center', gap: 4,
-    borderBottom: '1px solid #E1E4E8',
     cursor: 'pointer', userSelect: 'none', overflow: 'hidden',
     boxSizing: 'border-box',
   },
