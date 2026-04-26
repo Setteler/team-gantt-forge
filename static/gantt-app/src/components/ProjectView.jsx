@@ -845,52 +845,53 @@ export default function ProjectView({
 
     const y = rowIndex * ROW_HEIGHT;
 
-    // Parent expanded = summary bracket
+    // Resolve the row's colour pair (bg/border) for whatever it ends up
+    // rendering as — bracket, collapsed-parent solid bar, or leaf bar.
+    let rowColor = null;
+    if (colorByField) {
+      const v = colorValueOf(iss.fields, colorByField);
+      rowColor = getValueColor(colorByField, v, colorByValues);
+    }
+
+    // Parent expanded = summary bracket — also tinted by colorByField when set
     if (isExpanded) {
       const bracketH = 6;
       const tickH = 10;
+      const bracketFill = rowColor ? rowColor.bg     : '#97A0AF';
+      const tickFill    = rowColor ? rowColor.border : '#6B778C';
       return (
         <g key={row.key}>
           {/* Main bracket bar */}
           <rect
             x={barLeft} y={y + ROW_HEIGHT / 2 - bracketH / 2}
             width={barWidth} height={bracketH}
-            rx={2} fill="#97A0AF" opacity={0.4}
+            rx={2} fill={bracketFill} opacity={0.55}
           />
-          {/* Left tick */}
           {!overflowLeft && (
             <rect
               x={barLeft} y={y + ROW_HEIGHT / 2 - tickH / 2}
               width={3} height={tickH}
-              rx={1} fill="#6B778C" opacity={0.6}
+              rx={1} fill={tickFill} opacity={0.7}
             />
           )}
-          {/* Right tick */}
           {!overflowRight && (
             <rect
               x={barLeft + barWidth - 3} y={y + ROW_HEIGHT / 2 - tickH / 2}
               width={3} height={tickH}
-              rx={1} fill="#6B778C" opacity={0.6}
+              rx={1} fill={tickFill} opacity={0.7}
             />
           )}
         </g>
       );
     }
 
-    // Parent collapsed = solid dark bar; Leaf = blue bar
+    // Parent collapsed = solid dark bar (or rowColor); Leaf = blue/colored bar
     const isCollapsedParent = hasKids && isCollapsed;
     const barH   = ROW_HEIGHT - 10;
     const barY   = y + (ROW_HEIGHT - barH) / 2;
-    // Color-by: when a colorByField is active, leaf bars inherit the
-    // configured (or default-palette) colour for the issue's value of that
-    // field. Collapsed-parent bars stay dark — they aren't a single issue.
     let bgColor     = isCollapsedParent ? '#253858' : DEFAULT_BAR_COLOR;
     let borderColor = isCollapsedParent ? '#172B4D' : DEFAULT_BAR_BORDER;
-    if (!isCollapsedParent && colorByField) {
-      const v = colorValueOf(iss.fields, colorByField);
-      const c = getValueColor(colorByField, v, colorByValues);
-      if (c) { bgColor = c.bg; borderColor = c.border; }
-    }
+    if (rowColor) { bgColor = rowColor.bg; borderColor = rowColor.border; }
     const textColor   = '#fff';
     const summary = iss.fields?.summary || '';
 
@@ -1247,11 +1248,11 @@ export default function ProjectView({
                       <span style={{ width: 20, flexShrink: 0 }} />
                     )}
                     {(() => {
-                      // Match the bar's color scheme when colorByField is on.
-                      // Use the bar's bg as a translucent badge background and
-                      // the border as text color for contrast.
+                      // Match the colorBy scheme regardless of whether the
+                      // row has children — Epics/Features should also pick
+                      // up their own status / priority / etc. colour.
                       let badgeStyle = s.keyBadge;
-                      if (colorByField && !row.hasKids) {
+                      if (colorByField) {
                         const v = colorValueOf(iss.fields, colorByField);
                         const c = getValueColor(colorByField, v, colorByValues);
                         if (c) {
