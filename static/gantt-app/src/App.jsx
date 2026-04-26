@@ -246,6 +246,14 @@ export default function App() {
   const [selectedProjects, setSelectedProjects] = useState(DEFAULT_CONFIG.selectedProjects);
   const [statusFilter, setStatusFilter]         = useState(DEFAULT_CONFIG.statusFilter);
   const [jqlFilter, setJqlFilter]               = useState(DEFAULT_CONFIG.jqlFilter);
+  // Debounced version of jqlFilter — used as a fetch dependency so we don't
+  // hit /search/jql on every keystroke (which can race / flash the loading
+  // state and was implicated in white-screen reports while typing).
+  const [committedJqlFilter, setCommittedJqlFilter] = useState(DEFAULT_CONFIG.jqlFilter);
+  useEffect(() => {
+    const t = setTimeout(() => setCommittedJqlFilter(jqlFilter), 600);
+    return () => clearTimeout(t);
+  }, [jqlFilter]);
   const [groupByFields, setGroupByFields]       = useState(DEFAULT_CONFIG.groupByFields);
   const [startDateField, setStartDateField]     = useState(DEFAULT_CONFIG.startDateField);
   const [endDateField, setEndDateField]         = useState(DEFAULT_CONFIG.endDateField);
@@ -401,7 +409,10 @@ export default function App() {
       setLoading(false);
       return;
     }
-    const customJql = jqlFilter.trim();
+    // Use the debounced JQL for actual fetching — typing in the input
+    // mutates jqlFilter immediately for UI/dirty-checking, but only the
+    // settled value should hit the API.
+    const customJql = committedJqlFilter.trim();
 
     // Fallback: if view has no JQL and no projects, try inheriting from folder
     let effectiveJql = customJql;
@@ -469,10 +480,10 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProjects, statusFilter, jqlFilter, groupByFields, startDateField, endDateField, orderByField, orderByDir, eventsOnly, activeViewId, folders, listFields, previewFields, filterFields, colorByField]);
+  }, [selectedProjects, statusFilter, committedJqlFilter, groupByFields, startDateField, endDateField, orderByField, orderByDir, eventsOnly, activeViewId, folders, listFields, previewFields, filterFields, colorByField]);
 
   useEffect(() => {
-    const customJql = jqlFilter.trim();
+    const customJql = committedJqlFilter.trim();
     // Also trigger fetch if a folder provides JQL
     const currentView = viewsRef.current.find(v => v.id === activeViewId);
     const folderJql = resolveFolderJql(currentView, folders);
@@ -1148,6 +1159,7 @@ export default function App() {
               <p style={styles.loadingText}>Loading issues…</p>
             </div>
           ) : viewType === 'list' ? (
+            <ModuleErrorBoundary key="list-view">
             <ListView
               issues={filteredIssues}
               customEvents={customEvents}
@@ -1160,7 +1172,9 @@ export default function App() {
               onAddEvent={openCreateEvent}
               onSaveEvent={saveEvent}
             />
+            </ModuleErrorBoundary>
           ) : viewType === 'project' ? (
+            <ModuleErrorBoundary key="project-view">
             <ProjectView
               issues={filteredIssues}
               today={today}
@@ -1179,9 +1193,11 @@ export default function App() {
               timelineZoom={timelineZoom}
               timelineZoomScale={timelineZoomScale}
             />
+            </ModuleErrorBoundary>
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'
                view types — they render as Gantt until the user switches their type. */
+            <ModuleErrorBoundary key="gantt-view">
             <GanttChart
               issues={ganttFilter === 'events' ? [] : filteredIssues}
               customEvents={ganttFilter === 'issues' ? [] : customEvents}
@@ -1207,6 +1223,7 @@ export default function App() {
               onFieldUpdate={updateIssueFieldLocal}
               getIssueDates={(key) => { const iss = issues.find(i => i.key === key); if (!iss) return null; return { startDate: iss.fields[startDateField || 'customfield_10015'], endDate: iss.fields[endDateField || 'duedate'] }; }}
             />
+            </ModuleErrorBoundary>
           )}
           </>
           )}
