@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router, invoke } from '@forge/bridge';
+import { getValueColor, colorValueOf, DEFAULT_BAR_COLOR, DEFAULT_BAR_BORDER } from '../colorBy';
 
 // ── Inline editor helpers (shared with IssuePreview; duplicated here so the
 //    Project view can stand alone without cross-imports) ─────────────────────
@@ -51,7 +52,15 @@ const FIELD_COL_MAX      = 400; // upper bound when user drags a column wider
 const TREE_WIDTH_DEFAULT = 760; // Name (340) + 3 × field (140) at natural size
 const TREE_WIDTH_MIN     = 260;
 const TREE_WIDTH_MAX     = 1600;
-const DAY_WIDTH     = 38;
+// Day-width is now determined by the timelineZoom prop:
+//   day     → 38px / day  (full day cells in header)
+//   month   → 4px  / day  (~120px per month)
+//   quarter → 1.5px / day (~135px per quarter, 90 days)
+function dayWidthFor(zoom) {
+  if (zoom === 'month')   return 4;
+  if (zoom === 'quarter') return 1.5;
+  return 38;
+}
 const ROW_HEIGHT    = 32;
 const HEADER_HEIGHT = 62;
 
@@ -103,6 +112,7 @@ export default function ProjectView({
   scrollToTarget, onVisibleMonthChange,
   listFields, availableFields, onListFieldsChange,
   onUpdateIssueField,
+  colorByField, colorByValues, timelineZoom,
 }) {
   const outerRef      = useRef(null);
   const bodyRef       = useRef(null);
@@ -143,6 +153,8 @@ export default function ProjectView({
   const edf = endDateField   || 'duedate';
 
   // ── Buffer dates ─────────────────────────────────────────────────────────
+  // Resolve the active day-width once per render (driven by zoom prop).
+  const DAY_WIDTH = dayWidthFor(timelineZoom);
   const todayYear   = today.getFullYear();
   const bufferStart = useMemo(() => new Date(todayYear - 1, 0, 1), [todayYear]);
   const bufferEnd   = useMemo(() => new Date(todayYear + 3, 0, 0), [todayYear]);
@@ -581,9 +593,18 @@ export default function ProjectView({
   // (Auto-expand-tree-on-new-column effect moved below, after extraFields
   // and treeContentWidth are declared, to avoid a TDZ error.)
 
-  // ── Render timeline header ───────────────────────────────────────────────
+  // ── Render timeline header (mode-aware: day / month / quarter) ──────────
   function renderTimelineHeader() {
-    // Month spans (top row)
+    if (timelineZoom === 'month') {
+      return renderMonthHeader();
+    }
+    if (timelineZoom === 'quarter') {
+      return renderQuarterHeader();
+    }
+    return renderDayHeader();
+  }
+
+  function renderDayHeader() {
     const monthEls = [];
     let mStart = 0, mMo = -1, mYear = -1;
     for (let i = 0; i <= totalDays; i++) {
@@ -605,8 +626,6 @@ export default function ProjectView({
         mMo = mo; mStart = i; mYear = d ? d.getFullYear() : -1;
       }
     }
-
-    // Day cells (bottom row) -- visible range only
     const dayEls = [];
     for (let i = visRange.from; i <= visRange.to && i < totalDays; i++) {
       const d = addDays(bufferStart, i);
@@ -630,7 +649,6 @@ export default function ProjectView({
         </div>
       );
     }
-
     return (
       <div style={{ position: 'relative', height: HEADER_HEIGHT, width: totalWidth }}>
         <div style={{ position: 'relative', height: 22 }}>{monthEls}</div>
@@ -639,8 +657,112 @@ export default function ProjectView({
     );
   }
 
-  // ── Weekend shading (memoized) ───────────────────────────────────────────
+  function renderMonthHeader() {
+    // Top row: years. Bottom row: month abbreviations (Jan, Feb, …).
+    const yearEls = [];
+    const monthEls = [];
+    let yStart = 0, yYear = -1;
+    let mStart = 0, mMo = -1, mYear = -1;
+    for (let i = 0; i <= totalDays; i++) {
+      const d  = i < totalDays ? addDays(bufferStart, i) : null;
+      const yr = d ? d.getFullYear() : -1;
+      const mo = d ? d.getMonth() : -1;
+      if (yr !== yYear) {
+        if (yYear !== -1) {
+          yearEls.push(
+            <div key={`y-${yStart}`} style={{
+              position: 'absolute', left: yStart * DAY_WIDTH, width: (i - yStart) * DAY_WIDTH,
+              height: 22, display: 'flex', alignItems: 'center', paddingLeft: 8,
+              fontWeight: 700, fontSize: 11, color: yYear === today.getFullYear() ? '#172B4D' : '#97A0AF',
+              whiteSpace: 'nowrap',
+            }}>{yYear}</div>
+          );
+        }
+        yYear = yr; yStart = i;
+      }
+      if (mo !== mMo) {
+        if (mMo !== -1) {
+          const isCurrentMonth = mYear === today.getFullYear() && mMo === today.getMonth();
+          monthEls.push(
+            <div key={`m-${mStart}`} style={{
+              position: 'absolute', left: mStart * DAY_WIDTH, width: (i - mStart) * DAY_WIDTH,
+              height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 10, fontWeight: isCurrentMonth ? 800 : 600,
+              color: isCurrentMonth ? '#fff' : '#42526E',
+              background: isCurrentMonth ? '#0073EA' : 'transparent',
+              borderRadius: isCurrentMonth ? 4 : 0,
+              borderLeft: '1px solid #EBECF0',
+            }}>
+              {MONTH_NAMES[mMo].slice(0, 3)}
+            </div>
+          );
+        }
+        mMo = mo; mStart = i; mYear = yr;
+      }
+    }
+    return (
+      <div style={{ position: 'relative', height: HEADER_HEIGHT, width: totalWidth }}>
+        <div style={{ position: 'relative', height: 22 }}>{yearEls}</div>
+        <div style={{ position: 'relative', height: 34 }}>{monthEls}</div>
+      </div>
+    );
+  }
+
+  function renderQuarterHeader() {
+    // Top row: years. Bottom row: Q1 / Q2 / Q3 / Q4.
+    const yearEls = [];
+    const qEls = [];
+    let yStart = 0, yYear = -1;
+    let qStart = 0, qIdx = -1, qYear = -1;
+    for (let i = 0; i <= totalDays; i++) {
+      const d  = i < totalDays ? addDays(bufferStart, i) : null;
+      const yr = d ? d.getFullYear() : -1;
+      const q  = d ? Math.floor(d.getMonth() / 3) : -1;
+      if (yr !== yYear) {
+        if (yYear !== -1) {
+          yearEls.push(
+            <div key={`y-${yStart}`} style={{
+              position: 'absolute', left: yStart * DAY_WIDTH, width: (i - yStart) * DAY_WIDTH,
+              height: 22, display: 'flex', alignItems: 'center', paddingLeft: 8,
+              fontWeight: 700, fontSize: 12, color: yYear === today.getFullYear() ? '#172B4D' : '#97A0AF',
+              whiteSpace: 'nowrap',
+            }}>{yYear}</div>
+          );
+        }
+        yYear = yr; yStart = i;
+      }
+      if (q !== qIdx || yr !== qYear) {
+        if (qIdx !== -1) {
+          const isCurrentQ = qYear === today.getFullYear() && qIdx === Math.floor(today.getMonth() / 3);
+          qEls.push(
+            <div key={`q-${qStart}`} style={{
+              position: 'absolute', left: qStart * DAY_WIDTH, width: (i - qStart) * DAY_WIDTH,
+              height: 34, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: isCurrentQ ? 800 : 600,
+              color: isCurrentQ ? '#fff' : '#42526E',
+              background: isCurrentQ ? '#0073EA' : 'transparent',
+              borderRadius: isCurrentQ ? 4 : 0,
+              borderLeft: '1px solid #EBECF0',
+            }}>
+              Q{qIdx + 1}
+            </div>
+          );
+        }
+        qIdx = q; qStart = i; qYear = yr;
+      }
+    }
+    return (
+      <div style={{ position: 'relative', height: HEADER_HEIGHT, width: totalWidth }}>
+        <div style={{ position: 'relative', height: 22 }}>{yearEls}</div>
+        <div style={{ position: 'relative', height: 34 }}>{qEls}</div>
+      </div>
+    );
+  }
+
+  // ── Weekend shading (memoized) — only shown in 'day' zoom mode where
+  //     individual days are wide enough to be visually meaningful. ───────
   const weekendShading = useMemo(() => {
+    if (timelineZoom !== 'day') return [];
     const out = [];
     const totalH = flatRows.length * ROW_HEIGHT;
     for (let i = visRange.from; i <= visRange.to && i < totalDays; i++) {
@@ -652,7 +774,7 @@ export default function ProjectView({
       }
     }
     return out;
-  }, [visRange.from, visRange.to, flatRows.length, holidaySet, bufferStart, totalDays]);
+  }, [visRange.from, visRange.to, flatRows.length, holidaySet, bufferStart, totalDays, timelineZoom, DAY_WIDTH]);
 
   // ── Holiday shading (memoized) ───────────────────────────────────────────
   const holidayShading = useMemo(() => {
@@ -753,8 +875,16 @@ export default function ProjectView({
     const isCollapsedParent = hasKids && isCollapsed;
     const barH   = ROW_HEIGHT - 10;
     const barY   = y + (ROW_HEIGHT - barH) / 2;
-    const bgColor     = isCollapsedParent ? '#253858' : '#0073EA';
-    const borderColor = isCollapsedParent ? '#172B4D' : '#0052CC';
+    // Color-by: when a colorByField is active, leaf bars inherit the
+    // configured (or default-palette) colour for the issue's value of that
+    // field. Collapsed-parent bars stay dark — they aren't a single issue.
+    let bgColor     = isCollapsedParent ? '#253858' : DEFAULT_BAR_COLOR;
+    let borderColor = isCollapsedParent ? '#172B4D' : DEFAULT_BAR_BORDER;
+    if (!isCollapsedParent && colorByField) {
+      const v = colorValueOf(iss.fields, colorByField);
+      const c = getValueColor(colorByField, v, colorByValues);
+      if (c) { bgColor = c.bg; borderColor = c.border; }
+    }
     const textColor   = '#fff';
     const summary = iss.fields?.summary || '';
 

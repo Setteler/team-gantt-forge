@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import JqlInput from './JqlInput';
 import { C, T } from '../tokens';
+import { getValueColor, colorValueOf } from '../colorBy';
 
 const ORDER_BY_OPTIONS = [
   { value: 'duedate',           label: 'Due Date' },
@@ -66,6 +67,90 @@ function Popover({ anchorRect, onClose, children, minWidth = 300, align = 'left'
 // ── Popover section label ─────────────────────────────────────────────────────
 function PopLabel({ children }) {
   return <div style={{ fontSize: '11px', fontWeight: 600, color: '#6B778C', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>{children}</div>;
+}
+
+// ── Color-by value swatches ───────────────────────────────────────────────────
+// Lists every distinct value of `fieldId` found in current issues, with a
+// colour swatch the user can click to override the default palette colour.
+function ColorByValues({ fieldId, fieldLabel: label, issues, colorByValues, onColorByValuesChange }) {
+  const values = useMemo(() => {
+    const set = new Set();
+    for (const iss of issues || []) {
+      const v = colorValueOf(iss.fields, fieldId);
+      if (v != null) set.add(v);
+    }
+    return Array.from(set).sort();
+  }, [issues, fieldId]);
+
+  function setColor(value, hex) {
+    const next = { ...(colorByValues || {}) };
+    next[fieldId] = { ...(next[fieldId] || {}), [String(value)]: hex };
+    onColorByValuesChange && onColorByValuesChange(next);
+  }
+  function clearColor(value) {
+    const next = { ...(colorByValues || {}) };
+    if (next[fieldId]) {
+      const { [String(value)]: _drop, ...rest } = next[fieldId];
+      if (Object.keys(rest).length) next[fieldId] = rest;
+      else delete next[fieldId];
+    }
+    onColorByValuesChange && onColorByValuesChange(next);
+  }
+  function resetAll() {
+    const next = { ...(colorByValues || {}) };
+    delete next[fieldId];
+    onColorByValuesChange && onColorByValuesChange(next);
+  }
+
+  if (values.length === 0) {
+    return (
+      <div style={{ marginTop: 14, fontSize: 12, color: '#97A0AF', fontStyle: 'italic' }}>
+        No values found for {label} in the current issues.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <PopLabel>Colors per value</PopLabel>
+        <button
+          onClick={resetAll}
+          style={{ background: 'none', border: 'none', color: '#0052CC', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+        >Reset</button>
+      </div>
+      <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #DFE1E6', borderRadius: 5 }}>
+        {values.map(v => {
+          const c = getValueColor(fieldId, v, colorByValues);
+          const userOverride = !!colorByValues?.[fieldId]?.[String(v)];
+          return (
+            <div key={v} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderBottom: '1px solid #f0f1f3', fontSize: 12 }}>
+              <label style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}>
+                <span style={{
+                  display: 'inline-block', width: 18, height: 18, borderRadius: 4,
+                  background: c.bg, border: `2px solid ${c.border}`, verticalAlign: 'middle',
+                }} />
+                <input
+                  type="color"
+                  value={c.bg}
+                  onChange={(e) => setColor(v, e.target.value)}
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                />
+              </label>
+              <span style={{ flex: 1, color: '#172B4D' }}>{v}</span>
+              {userOverride && (
+                <button
+                  onClick={() => clearColor(v)}
+                  style={{ background: 'none', border: 'none', color: '#97A0AF', fontSize: 11, cursor: 'pointer', padding: 0 }}
+                  title="Reset to default"
+                >×</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ── Field search + list selector ──────────────────────────────────────────────
@@ -287,6 +372,9 @@ export default function Toolbar({
   listFields, onListFieldsChange,
   previewFields, onPreviewFieldsChange,
   filterFields, onFilterFieldsChange,
+  colorByField, onColorByFieldChange,
+  colorByValues, onColorByValuesChange,
+  timelineZoom, onTimelineZoomChange,
   orderByField, orderByDir, onOrderByFieldChange, onOrderByDirChange,
   onViewTypeChange,
   eventsOnly, onEventsOnlyChange,
@@ -470,6 +558,14 @@ export default function Toolbar({
             />
 
             <TBtn
+              icon="◐"
+              label={colorByField ? `Color: ${fieldLabel(colorByField)}` : 'Color'}
+              active={!!colorByField || openPopover === 'colorBy'}
+              activeColor={C.primary2}
+              onClick={e => openPop('colorBy', e)}
+            />
+
+            <TBtn
               icon="⊠"
               label={dateFieldsActive ? 'Dates: Custom' : 'Dates'}
               active={dateFieldsActive}
@@ -487,6 +583,33 @@ export default function Toolbar({
 
             {/* Divider */}
             <div style={{ flex: 1 }} />
+
+            {/* Timeline zoom (Days / Months / Quarters) */}
+            {viewType !== 'list' && (
+              <div style={{ display: 'inline-flex', border: '1px solid #DFE1E6', borderRadius: 5, overflow: 'hidden', marginRight: 6, flexShrink: 0 }}>
+                {[
+                  { v: 'day',     l: 'Days' },
+                  { v: 'month',   l: 'Months' },
+                  { v: 'quarter', l: 'Qtrs' },
+                ].map(o => {
+                  const active = (timelineZoom || 'day') === o.v;
+                  return (
+                    <button
+                      key={o.v}
+                      onClick={() => onTimelineZoomChange && onTimelineZoomChange(o.v)}
+                      style={{
+                        background: active ? C.primaryBg : '#fff',
+                        color: active ? C.primary : C.ink3,
+                        border: 'none',
+                        borderRight: o.v === 'quarter' ? 'none' : '1px solid #DFE1E6',
+                        padding: '4px 9px', fontSize: 11, fontWeight: 600,
+                        cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >{o.l}</button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Timeline nav */}
             {viewType !== 'list' && (
@@ -734,6 +857,64 @@ export default function Toolbar({
                 })
               )}
             </div>
+          </div>
+        </Popover>
+      )}
+
+      {/* ── Color by ── */}
+      {openPopover === 'colorBy' && (
+        <Popover anchorRect={anchorRect} onClose={closePop} minWidth={320}>
+          <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f0f1f3' }}>
+            <div style={{ fontSize: '13px', fontWeight: 700, color: '#172B4D' }}>Color bars by</div>
+            <div style={{ fontSize: '11px', color: '#97A0AF', marginTop: '2px' }}>
+              Pick a field whose values drive bar color (Status, Priority, …).
+            </div>
+          </div>
+          <div style={{ padding: '12px 16px' }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+              <button
+                onClick={() => onColorByFieldChange && onColorByFieldChange(null)}
+                style={{
+                  flex: 1, padding: '5px 8px', fontSize: 12, fontWeight: 600,
+                  background: !colorByField ? '#172B4D' : '#fff',
+                  color: !colorByField ? '#fff' : '#42526E',
+                  border: '1px solid', borderColor: !colorByField ? '#172B4D' : '#DFE1E6',
+                  borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >Off</button>
+              {['status', 'priority', 'issuetype', 'assignee'].map(qid => (
+                allFields.some(f => f.id === qid) ? (
+                  <button
+                    key={qid}
+                    onClick={() => onColorByFieldChange && onColorByFieldChange(qid)}
+                    style={{
+                      flex: 1, padding: '5px 8px', fontSize: 12, fontWeight: 600,
+                      background: colorByField === qid ? '#172B4D' : '#fff',
+                      color: colorByField === qid ? '#fff' : '#42526E',
+                      border: '1px solid', borderColor: colorByField === qid ? '#172B4D' : '#DFE1E6',
+                      borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit',
+                    }}
+                  >{fieldLabel(qid)}</button>
+                ) : null
+              ))}
+            </div>
+            <div>
+              <PopLabel>Or any other field</PopLabel>
+              <FieldPicker
+                value={colorByField || ''}
+                onChange={(fid) => onColorByFieldChange && onColorByFieldChange(fid || null)}
+                availableFields={allFields}
+              />
+            </div>
+            {colorByField && (
+              <ColorByValues
+                fieldId={colorByField}
+                fieldLabel={fieldLabel(colorByField)}
+                issues={issues}
+                colorByValues={colorByValues}
+                onColorByValuesChange={onColorByValuesChange}
+              />
+            )}
           </div>
         </Popover>
       )}

@@ -64,6 +64,9 @@ const DEFAULT_CONFIG = {
   filterFields: [],     // fields that appear as chips in the filter bar
   filterValues: {},     // { fieldId: [selectedValue1, selectedValue2, ...] }
   filterScopes: {},     // { fieldId: { types: null | string[], ancestorMode: 'keep' | 'hide' } }
+  colorByField: null,   // fieldId driving bar color, or null = uniform blue
+  colorByValues: {},    // { fieldId: { value: '#hex', ... } } — per-field color overrides
+  timelineZoom: 'day',  // 'day' | 'month' | 'quarter'
   viewType: 'timeline',
   orderByField: 'duedate',
   orderByDir: 'ASC',
@@ -249,6 +252,9 @@ export default function App() {
   const [filterFields, setFilterFields]         = useState(DEFAULT_CONFIG.filterFields);
   const [filterValues, setFilterValues]         = useState(DEFAULT_CONFIG.filterValues);
   const [filterScopes, setFilterScopes]         = useState(DEFAULT_CONFIG.filterScopes);
+  const [colorByField, setColorByField]         = useState(DEFAULT_CONFIG.colorByField);
+  const [colorByValues, setColorByValues]       = useState(DEFAULT_CONFIG.colorByValues);
+  const [timelineZoom, setTimelineZoom]         = useState(DEFAULT_CONFIG.timelineZoom);
   const [previewFields, setPreviewFields]       = useState(DEFAULT_CONFIG.previewFields);
   const [viewType, setViewType]                 = useState(DEFAULT_CONFIG.viewType);
   const [orderByField, setOrderByField]         = useState(DEFAULT_CONFIG.orderByField);
@@ -340,6 +346,9 @@ export default function App() {
     setFilterFields(view.filterFields || DEFAULT_CONFIG.filterFields);
     setFilterValues(view.filterValues || DEFAULT_CONFIG.filterValues);
     setFilterScopes(view.filterScopes || DEFAULT_CONFIG.filterScopes);
+    setColorByField(view.colorByField ?? DEFAULT_CONFIG.colorByField);
+    setColorByValues(view.colorByValues || DEFAULT_CONFIG.colorByValues);
+    setTimelineZoom(view.timelineZoom || DEFAULT_CONFIG.timelineZoom);
     setPreviewFields(view.previewFields || DEFAULT_CONFIG.previewFields);
     setViewType(view.viewType || 'timeline');
     setOrderByField(view.orderByField || 'duedate');
@@ -364,6 +373,9 @@ export default function App() {
     JSON.stringify(filterFields) !== JSON.stringify(activeView.filterFields || DEFAULT_CONFIG.filterFields) ||
     JSON.stringify(filterValues) !== JSON.stringify(activeView.filterValues || DEFAULT_CONFIG.filterValues) ||
     JSON.stringify(filterScopes) !== JSON.stringify(activeView.filterScopes || DEFAULT_CONFIG.filterScopes) ||
+    (colorByField || null) !== (activeView.colorByField ?? null) ||
+    JSON.stringify(colorByValues) !== JSON.stringify(activeView.colorByValues || DEFAULT_CONFIG.colorByValues) ||
+    (timelineZoom || 'day') !== (activeView.timelineZoom || 'day') ||
     viewType       !== (activeView.viewType       || 'timeline') ||
     orderByField   !== (activeView.orderByField   || 'duedate') ||
     orderByDir     !== (activeView.orderByDir     || 'ASC') ||
@@ -553,6 +565,7 @@ export default function App() {
       selectedProjects, statusFilter, jqlFilter,
       groupByFields, startDateField, endDateField,
       listFields, previewFields, filterFields, filterValues, filterScopes,
+      colorByField, colorByValues, timelineZoom,
       viewType, orderByField, orderByDir, eventsOnly,
     };
     await invoke('saveView', { view: updated });
@@ -1010,6 +1023,12 @@ export default function App() {
         onPreviewFieldsChange={setPreviewFields}
         filterFields={filterFields}
         onFilterFieldsChange={setFilterFields}
+        colorByField={colorByField}
+        onColorByFieldChange={setColorByField}
+        colorByValues={colorByValues}
+        onColorByValuesChange={setColorByValues}
+        timelineZoom={timelineZoom}
+        onTimelineZoomChange={setTimelineZoom}
         orderByField={orderByField}
         orderByDir={orderByDir}
         onOrderByFieldChange={setOrderByField}
@@ -1140,6 +1159,9 @@ export default function App() {
               availableFields={availableFields}
               onListFieldsChange={setListFields}
               onUpdateIssueField={updateIssueFieldLocal}
+              colorByField={colorByField}
+              colorByValues={colorByValues}
+              timelineZoom={timelineZoom}
             />
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'
