@@ -52,13 +52,13 @@ const FIELD_COL_MAX      = 400; // upper bound when user drags a column wider
 const TREE_WIDTH_DEFAULT = 760; // Name (340) + 3 × field (140) at natural size
 const TREE_WIDTH_MIN     = 260;
 const TREE_WIDTH_MAX     = 1600;
-// Day-width is now determined by the timelineZoom prop:
-//   day     → 38px / day  (full day cells in header)
-//   month   → 4px  / day  (~120px per month)
-//   quarter → 1.5px / day (~135px per quarter, 90 days)
+// Day-width is determined by the timelineZoom prop:
+//   day     → 38 px/day  (full day cells; ~265px per week)
+//   month   → 8  px/day  (~240px per month; bar text legible)
+//   quarter → 3  px/day  (~270px per quarter; bars are clearly visible)
 function dayWidthFor(zoom) {
-  if (zoom === 'month')   return 4;
-  if (zoom === 'quarter') return 1.5;
+  if (zoom === 'month')   return 8;
+  if (zoom === 'quarter') return 3;
   return 38;
 }
 const ROW_HEIGHT    = 32;
@@ -579,7 +579,9 @@ export default function ProjectView({
     bodyRef.current.scrollLeft = off;
   }, [scrollToTarget, bufferStart, todayOff]);
 
-  // Scroll to today on initial mount
+  // Scroll to today on initial mount AND whenever the zoom changes — pixel
+  // positions are not stable across DAY_WIDTH changes, so without this the
+  // view jumps to an unrelated date when the user toggles Days/Months/Qtrs.
   useEffect(() => {
     if (!bodyRef.current) return;
     const off = Math.max(0, todayOff - 60);
@@ -588,7 +590,7 @@ export default function ProjectView({
     const from = Math.max(0, Math.floor(off / DAY_WIDTH) - 20);
     const to   = Math.min(totalDays - 1, Math.ceil((off + cw) / DAY_WIDTH) + 20);
     setVisRange({ from, to });
-  }, []);
+  }, [timelineZoom, DAY_WIDTH, todayOff, totalDays]);
 
   // (Auto-expand-tree-on-new-column effect moved below, after extraFields
   // and treeContentWidth are declared, to avoid a TDZ error.)
@@ -833,7 +835,9 @@ export default function ProjectView({
     // Apply live drag offset if this bar is being dragged
     const dragOffset = (draggingBar && draggingBar.key === row.key) ? draggingBar.delta * DAY_WIDTH : 0;
     const barLeft  = clippedStart * DAY_WIDTH + dragOffset;
-    const barWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, DAY_WIDTH * 0.5);
+    // At the compressed zoom levels, a 1-day bar would be just 3-8px —
+    // hard to spot. Floor bar width at 8px so every issue is visible.
+    const barWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, 8);
     const overflowLeft  = startOff < 0;
     const overflowRight = endOff > totalDays;
 
