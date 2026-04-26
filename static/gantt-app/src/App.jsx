@@ -433,9 +433,18 @@ export default function App() {
       }
 
       const defaultFields = ['summary','assignee','status','priority','duedate','customfield_10015','labels','issuetype','project','resolution','reporter'];
-      const extraFields = [...groupByFields, startDateField, endDateField].filter(f =>
-        f && !defaultFields.includes(f)
-      );
+      // Include every field the user references in the view config so the
+      // Jira API returns values for it. Without this, custom fields added
+      // as filters / columns / colour-by come back empty and their value
+      // pickers look broken.
+      const extraFields = [
+        ...groupByFields,
+        startDateField, endDateField,
+        ...(listFields || []),
+        ...(previewFields || []),
+        ...(filterFields || []),
+        colorByField,
+      ].filter(f => f && !defaultFields.includes(f));
 
       const allIssues = [];
       let nextPageToken = undefined;
@@ -460,7 +469,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProjects, statusFilter, jqlFilter, groupByFields, startDateField, endDateField, orderByField, orderByDir, eventsOnly, activeViewId, folders]);
+  }, [selectedProjects, statusFilter, jqlFilter, groupByFields, startDateField, endDateField, orderByField, orderByDir, eventsOnly, activeViewId, folders, listFields, previewFields, filterFields, colorByField]);
 
   useEffect(() => {
     const customJql = jqlFilter.trim();
