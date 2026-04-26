@@ -375,6 +375,7 @@ export default function Toolbar({
   colorByField, onColorByFieldChange,
   colorByValues, onColorByValuesChange,
   timelineZoom, onTimelineZoomChange,
+  timelineZoomScale, onTimelineZoomScaleChange,
   orderByField, orderByDir, onOrderByFieldChange, onOrderByDirChange,
   onViewTypeChange,
   eventsOnly, onEventsOnlyChange,
@@ -584,30 +585,47 @@ export default function Toolbar({
             {/* Divider */}
             <div style={{ flex: 1 }} />
 
-            {/* Timeline zoom (Days / Months / Quarters) */}
+            {/* Timeline zoom — preset (Days / Months / Qtrs) + fine-grained
+                +/- around the current preset. Picking a preset resets the
+                scale; +/- multiplies the active day-width by 1.4 or 1/1.4. */}
             {viewType !== 'list' && (
-              <div style={{ display: 'inline-flex', border: '1px solid #DFE1E6', borderRadius: 5, overflow: 'hidden', marginRight: 6, flexShrink: 0 }}>
-                {[
-                  { v: 'day',     l: 'Days' },
-                  { v: 'month',   l: 'Months' },
-                  { v: 'quarter', l: 'Qtrs' },
-                ].map(o => {
-                  const active = (timelineZoom || 'day') === o.v;
-                  return (
-                    <button
-                      key={o.v}
-                      onClick={() => onTimelineZoomChange && onTimelineZoomChange(o.v)}
-                      style={{
-                        background: active ? C.primaryBg : '#fff',
-                        color: active ? C.primary : C.ink3,
-                        border: 'none',
-                        borderRight: o.v === 'quarter' ? 'none' : '1px solid #DFE1E6',
-                        padding: '4px 9px', fontSize: 11, fontWeight: 600,
-                        cursor: 'pointer', fontFamily: 'inherit',
-                      }}
-                    >{o.l}</button>
-                  );
-                })}
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginRight: 6, flexShrink: 0 }}>
+                <div style={{ display: 'inline-flex', border: '1px solid #DFE1E6', borderRadius: 5, overflow: 'hidden' }}>
+                  {[
+                    { v: 'day',     l: 'Days' },
+                    { v: 'month',   l: 'Months' },
+                    { v: 'quarter', l: 'Qtrs' },
+                  ].map(o => {
+                    const active = (timelineZoom || 'day') === o.v && (timelineZoomScale || 1) === 1;
+                    return (
+                      <button
+                        key={o.v}
+                        onClick={() => {
+                          onTimelineZoomChange && onTimelineZoomChange(o.v);
+                          onTimelineZoomScaleChange && onTimelineZoomScaleChange(1);
+                        }}
+                        style={{
+                          background: active ? C.primaryBg : '#fff',
+                          color: active ? C.primary : C.ink3,
+                          border: 'none',
+                          borderRight: o.v === 'quarter' ? 'none' : '1px solid #DFE1E6',
+                          padding: '4px 9px', fontSize: 11, fontWeight: 600,
+                          cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >{o.l}</button>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => onTimelineZoomScaleChange && onTimelineZoomScaleChange(Math.max(0.2, (timelineZoomScale || 1) / 1.4))}
+                  title="Zoom out"
+                  style={zoomBtnStyle}
+                >−</button>
+                <button
+                  onClick={() => onTimelineZoomScaleChange && onTimelineZoomScaleChange(Math.min(5, (timelineZoomScale || 1) * 1.4))}
+                  title="Zoom in"
+                  style={zoomBtnStyle}
+                >+</button>
               </div>
             )}
 
@@ -1078,6 +1096,13 @@ const cadenceNavBtn = {
   background: 'transparent', border: 'none', borderRadius: 4,
   padding: '3px 8px', cursor: 'pointer', fontSize: '14px', color: C.ink2,
   lineHeight: 1.4, fontFamily: T.sans,
+};
+
+const zoomBtnStyle = {
+  background: '#fff', border: '1px solid #DFE1E6', borderRadius: 4,
+  width: 22, height: 22, padding: 0, cursor: 'pointer',
+  fontSize: 14, fontWeight: 700, color: C.ink2, lineHeight: 1,
+  fontFamily: T.sans,
 };
 
 // keep old name as alias for any remaining references

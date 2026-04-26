@@ -66,7 +66,8 @@ const DEFAULT_CONFIG = {
   filterScopes: {},     // { fieldId: { types: null | string[], ancestorMode: 'keep' | 'hide' } }
   colorByField: null,   // fieldId driving bar color, or null = uniform blue
   colorByValues: {},    // { fieldId: { value: '#hex', ... } } — per-field color overrides
-  timelineZoom: 'day',  // 'day' | 'month' | 'quarter'
+  timelineZoom: 'day',  // 'day' | 'month' | 'quarter' (header style)
+  timelineZoomScale: 1, // multiplier on top of the preset day-width — 1=preset, +zoom in / -zoom out
   viewType: 'timeline',
   orderByField: 'duedate',
   orderByDir: 'ASC',
@@ -255,6 +256,7 @@ export default function App() {
   const [colorByField, setColorByField]         = useState(DEFAULT_CONFIG.colorByField);
   const [colorByValues, setColorByValues]       = useState(DEFAULT_CONFIG.colorByValues);
   const [timelineZoom, setTimelineZoom]         = useState(DEFAULT_CONFIG.timelineZoom);
+  const [timelineZoomScale, setTimelineZoomScale] = useState(DEFAULT_CONFIG.timelineZoomScale);
   const [previewFields, setPreviewFields]       = useState(DEFAULT_CONFIG.previewFields);
   const [viewType, setViewType]                 = useState(DEFAULT_CONFIG.viewType);
   const [orderByField, setOrderByField]         = useState(DEFAULT_CONFIG.orderByField);
@@ -349,6 +351,7 @@ export default function App() {
     setColorByField(view.colorByField ?? DEFAULT_CONFIG.colorByField);
     setColorByValues(view.colorByValues || DEFAULT_CONFIG.colorByValues);
     setTimelineZoom(view.timelineZoom || DEFAULT_CONFIG.timelineZoom);
+    setTimelineZoomScale(view.timelineZoomScale || DEFAULT_CONFIG.timelineZoomScale);
     setPreviewFields(view.previewFields || DEFAULT_CONFIG.previewFields);
     setViewType(view.viewType || 'timeline');
     setOrderByField(view.orderByField || 'duedate');
@@ -376,6 +379,7 @@ export default function App() {
     (colorByField || null) !== (activeView.colorByField ?? null) ||
     JSON.stringify(colorByValues) !== JSON.stringify(activeView.colorByValues || DEFAULT_CONFIG.colorByValues) ||
     (timelineZoom || 'day') !== (activeView.timelineZoom || 'day') ||
+    (timelineZoomScale || 1) !== (activeView.timelineZoomScale || 1) ||
     viewType       !== (activeView.viewType       || 'timeline') ||
     orderByField   !== (activeView.orderByField   || 'duedate') ||
     orderByDir     !== (activeView.orderByDir     || 'ASC') ||
@@ -565,7 +569,7 @@ export default function App() {
       selectedProjects, statusFilter, jqlFilter,
       groupByFields, startDateField, endDateField,
       listFields, previewFields, filterFields, filterValues, filterScopes,
-      colorByField, colorByValues, timelineZoom,
+      colorByField, colorByValues, timelineZoom, timelineZoomScale,
       viewType, orderByField, orderByDir, eventsOnly,
     };
     await invoke('saveView', { view: updated });
@@ -1029,6 +1033,8 @@ export default function App() {
         onColorByValuesChange={setColorByValues}
         timelineZoom={timelineZoom}
         onTimelineZoomChange={setTimelineZoom}
+        timelineZoomScale={timelineZoomScale}
+        onTimelineZoomScaleChange={setTimelineZoomScale}
         orderByField={orderByField}
         orderByDir={orderByDir}
         onOrderByFieldChange={setOrderByField}
@@ -1162,6 +1168,7 @@ export default function App() {
               colorByField={colorByField}
               colorByValues={colorByValues}
               timelineZoom={timelineZoom}
+              timelineZoomScale={timelineZoomScale}
             />
           ) : (
             /* Fallback: timeline/gantt view. Also handles legacy 'tree' and 'roadmap'

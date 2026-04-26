@@ -112,7 +112,7 @@ export default function ProjectView({
   scrollToTarget, onVisibleMonthChange,
   listFields, availableFields, onListFieldsChange,
   onUpdateIssueField,
-  colorByField, colorByValues, timelineZoom,
+  colorByField, colorByValues, timelineZoom, timelineZoomScale,
 }) {
   const outerRef      = useRef(null);
   const bodyRef       = useRef(null);
@@ -153,8 +153,10 @@ export default function ProjectView({
   const edf = endDateField   || 'duedate';
 
   // ── Buffer dates ─────────────────────────────────────────────────────────
-  // Resolve the active day-width once per render (driven by zoom prop).
-  const DAY_WIDTH = dayWidthFor(timelineZoom);
+  // Resolve the active day-width once per render. Base preset (Days/Months/
+  // Quarters) sets a baseline; the +/- buttons scale around it. Clamp to a
+  // reasonable range so extreme zooms can't grind layout calc to a halt.
+  const DAY_WIDTH = Math.max(0.5, Math.min(120, dayWidthFor(timelineZoom) * (timelineZoomScale || 1)));
   const todayYear   = today.getFullYear();
   const bufferStart = useMemo(() => new Date(todayYear - 1, 0, 1), [todayYear]);
   const bufferEnd   = useMemo(() => new Date(todayYear + 3, 0, 0), [todayYear]);
@@ -1244,11 +1246,26 @@ export default function ProjectView({
                     ) : (
                       <span style={{ width: 20, flexShrink: 0 }} />
                     )}
-                    <span
-                      style={{ ...s.keyBadge, cursor: 'pointer' }}
-                      onClick={(e) => { e.stopPropagation(); router.open(`/browse/${row.key}`); }}
-                      title="Open issue in new tab"
-                    >{row.key}</span>
+                    {(() => {
+                      // Match the bar's color scheme when colorByField is on.
+                      // Use the bar's bg as a translucent badge background and
+                      // the border as text color for contrast.
+                      let badgeStyle = s.keyBadge;
+                      if (colorByField && !row.hasKids) {
+                        const v = colorValueOf(iss.fields, colorByField);
+                        const c = getValueColor(colorByField, v, colorByValues);
+                        if (c) {
+                          badgeStyle = { ...s.keyBadge, background: `${c.bg}33`, color: c.border };
+                        }
+                      }
+                      return (
+                        <span
+                          style={{ ...badgeStyle, cursor: 'pointer' }}
+                          onClick={(e) => { e.stopPropagation(); router.open(`/browse/${row.key}`); }}
+                          title="Open issue in new tab"
+                        >{row.key}</span>
+                      );
+                    })()}
                     <span style={s.summaryText}>{summary}</span>
                     {row.hasKids && (
                       <span style={s.childCount}>({(childrenByKey[row.key] || []).length})</span>
