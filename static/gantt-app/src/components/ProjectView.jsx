@@ -1642,8 +1642,8 @@ export default function ProjectView({
                   xmlns="http://www.w3.org/2000/svg"
                 >
                   <defs>
-                    <marker id="arrowhead-pv" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-                      <path d="M 0 1 L 7 4 L 0 7 z" fill="#6B778C" />
+                    <marker id="arrowhead-pv" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                      <path d="M 0 1 L 9 5 L 0 9 z" fill="#5E6C84" />
                     </marker>
                   </defs>
                   {depArrows.map((a, i) => {
@@ -1655,10 +1655,10 @@ export default function ProjectView({
                       <path
                         key={i}
                         d={`M ${a.x1} ${a.y1} L ${elbowX} ${a.y1} L ${elbowX} ${a.y2} L ${tipX} ${a.y2}`}
-                        fill="none" stroke="#6B778C" strokeWidth={1}
+                        fill="none" stroke="#5E6C84" strokeWidth={2}
                         strokeLinejoin="round"
                         markerEnd="url(#arrowhead-pv)"
-                        opacity={0.75}
+                        opacity={1}
                       />
                     );
                   })}
