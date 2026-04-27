@@ -124,11 +124,11 @@ export default function ProjectView({
   const [selectedKey, setSelectedKey] = useState(null);
   const [hoveredKey, setHoveredKey]   = useState(null);
   const [visRange, setVisRange]       = useState({ from: 0, to: 160 });
-  // Initial tree-panel width sized to fit every column at natural width
-  // (so whatever the user had saved shows up fully on first render).
+  // Initial tree-panel width — a rough estimate before issues load. The
+  // auto-fit effect below re-syncs to actual content widths once data is in.
   const [treeWidth, setTreeWidth]     = useState(() => {
     const fieldCount = (listFields || []).filter(fid => fid && fid !== 'summary').length;
-    return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_DEFAULT, NAME_COL_DEFAULT + fieldCount * FIELD_COL_NATURAL));
+    return Math.min(TREE_WIDTH_MAX, Math.max(TREE_WIDTH_MIN, NAME_COL_DEFAULT + fieldCount * 100));
   });
   const [nameWidthUser, setNameWidthUser] = useState(NAME_COL_DEFAULT);
   const [showTimeline, setShowTimeline] = useState(true);
@@ -153,6 +153,10 @@ export default function ProjectView({
   // x-position of the full-height blue guide shown while any resize is in
   // progress (tree/timeline divider, Name column, or per-field column).
   const [resizeGuideX, setResizeGuideX] = useState(null);
+  // Tracks whether the user has manually dragged the tree/timeline divider.
+  // While false, treeWidth follows the auto-fit content width so the panel
+  // doesn't show empty whitespace past the columns.
+  const userTouchedTreeWidthRef = useRef(false);
 
   const sdf = startDateField || 'customfield_10015';
   const edf = endDateField   || 'duedate';
@@ -639,6 +643,7 @@ export default function ProjectView({
 
   // ── Tree / timeline divider drag ───────────────────────────────────────
   function startDividerDrag(e) {
+    userTouchedTreeWidthRef.current = true;
     const startW = treeWidth;
     runColumnResizeDrag(e, d => d, d => {
       setTreeWidth(Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, startW + d)));
@@ -1054,7 +1059,6 @@ export default function ProjectView({
           style={{ cursor: 'grab', pointerEvents: 'auto' }}
           onMouseDown={(e) => startBarDrag(e, row)}
           onMouseEnter={() => setHoveredKey(row.key)}
-          onMouseLeave={() => setHoveredKey(null)}
         />
         {/* Overflow arrows */}
         {overflowLeft && (
@@ -1107,34 +1111,47 @@ export default function ProjectView({
           />
         )}
         {/* Connection dots — appear on hover, drag to create a Blocks link.
-            Sit OUTSIDE the bar (8px gap) and are bigger (r=7) so they're
-            easy to grab without fighting the bar's other interactive areas. */}
+            Each dot has its own onMouseEnter that re-asserts the row's hover
+            state, so moving from bar → dot doesn't blink them away. A larger
+            invisible hit-circle wraps each visible dot so the cursor picks
+            it up before it visually disappears. */}
         {!isCollapsedParent && isHoveredBar && !overflowLeft && (
-          <circle
-            cx={barLeft - 10} cy={barY + barH / 2} r={7}
-            fill="#fff" stroke="#6B778C" strokeWidth={2}
-            style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
-            onMouseDown={(e) => startLinkDrag(e, row.key, 'inward')}
-          >
-            <title>Drag to another bar to mark THIS issue as blocked by it</title>
-          </circle>
-        )}
-        {!isCollapsedParent && isHoveredBar && !overflowLeft && (
-          /* Inner dot — visual anchor inside the white circle */
-          <circle cx={barLeft - 10} cy={barY + barH / 2} r={3} fill="#6B778C" style={{ pointerEvents: 'none' }} />
+          <g>
+            <circle
+              cx={barLeft - 10} cy={barY + barH / 2} r={12}
+              fill="transparent"
+              style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
+              onMouseEnter={() => setHoveredKey(row.key)}
+              onMouseDown={(e) => startLinkDrag(e, row.key, 'inward')}
+            />
+            <circle
+              cx={barLeft - 10} cy={barY + barH / 2} r={7}
+              fill="#fff" stroke="#6B778C" strokeWidth={2}
+              style={{ pointerEvents: 'none' }}
+            >
+              <title>Drag to another bar to mark THIS issue as blocked by it</title>
+            </circle>
+            <circle cx={barLeft - 10} cy={barY + barH / 2} r={3} fill="#6B778C" style={{ pointerEvents: 'none' }} />
+          </g>
         )}
         {!isCollapsedParent && isHoveredBar && !overflowRight && (
-          <circle
-            cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={7}
-            fill="#fff" stroke="#0073EA" strokeWidth={2}
-            style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
-            onMouseDown={(e) => startLinkDrag(e, row.key, 'outward')}
-          >
-            <title>Drag to another bar to mark THIS issue as blocking it</title>
-          </circle>
-        )}
-        {!isCollapsedParent && isHoveredBar && !overflowRight && (
-          <circle cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={3} fill="#0073EA" style={{ pointerEvents: 'none' }} />
+          <g>
+            <circle
+              cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={12}
+              fill="transparent"
+              style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
+              onMouseEnter={() => setHoveredKey(row.key)}
+              onMouseDown={(e) => startLinkDrag(e, row.key, 'outward')}
+            />
+            <circle
+              cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={7}
+              fill="#fff" stroke="#0073EA" strokeWidth={2}
+              style={{ pointerEvents: 'none' }}
+            >
+              <title>Drag to another bar to mark THIS issue as blocking it</title>
+            </circle>
+            <circle cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={3} fill="#0073EA" style={{ pointerEvents: 'none' }} />
+          </g>
         )}
       </g>
     );
@@ -1254,10 +1271,12 @@ export default function ProjectView({
     const sample = issues.slice(0, 80);
     for (const f of extraFields) {
       if (f.id === 'duedate' || f.id === 'customfield_10015') {
-        map[f.id] = 88; // dates: "Apr 30"
+        map[f.id] = 110; // dates: "Apr 30" — sized to fit "START DATE ↕" header
         continue;
       }
-      let maxLen = Math.max(6, (f.name || '').length); // header text floor
+      // Header is uppercase + bold + sort glyph, so size it generously.
+      const headerLen = Math.ceil((f.name || '').length * 1.15) + 3;
+      let maxLen = Math.max(6, headerLen);
       for (const iss of sample) {
         const v = iss.fields?.[f.id];
         if (v == null) continue;
@@ -1268,8 +1287,8 @@ export default function ProjectView({
         else text = v.name || v.displayName || v.value || v.key || '';
         if (text.length > maxLen) maxLen = text.length;
       }
-      // ~6.5px per char (11px font) + 28px padding & sort glyph
-      map[f.id] = Math.max(80, Math.min(220, Math.round(maxLen * 6.5 + 28)));
+      // ~6.5px per char (11px font) + 24px padding & sort glyph
+      map[f.id] = Math.max(70, Math.min(220, Math.round(maxLen * 6.5 + 24)));
     }
     return map;
   }, [extraFields, issues]);
@@ -1319,17 +1338,20 @@ export default function ProjectView({
   const isColCollapsed = (fid) => (widthByFieldId[fid] ?? FIELD_COL_NATURAL) < VERTICAL_TEXT_THRESHOLD;
   const leftPanelWidth = showTimeline ? treeWidth : '100%';
 
-  // When the user adds a new column (extraFields grows), auto-expand the tree
-  // panel so the new column is visible at its natural width. Don't shrink —
-  // user may have deliberately narrowed the panel.
+  // Auto-fit the tree panel width to actual column content while the user
+  // hasn't manually dragged the divider. Once they drag it, we stop syncing
+  // so we don't fight their preference. Adding a column re-grows the panel,
+  // removing one shrinks it back so the timeline reclaims the space.
   const prevFieldCountRef = useRef(extraFields.length);
   useEffect(() => {
     if (!showTimeline) return;
-    if (extraFields.length > prevFieldCountRef.current && treeContentWidth > treeWidth) {
-      setTreeWidth(Math.min(TREE_WIDTH_MAX, treeContentWidth));
-    }
+    if (issues.length === 0) return;
+    const fieldCountChanged = extraFields.length !== prevFieldCountRef.current;
     prevFieldCountRef.current = extraFields.length;
-  }, [extraFields.length, treeContentWidth, treeWidth, showTimeline]);
+    if (userTouchedTreeWidthRef.current && !fieldCountChanged) return;
+    const target = Math.max(TREE_WIDTH_MIN, Math.min(TREE_WIDTH_MAX, treeContentWidth));
+    if (Math.abs(target - treeWidth) > 2) setTreeWidth(target);
+  }, [extraFields.length, treeContentWidth, treeWidth, showTimeline, issues.length]);
 
   return (
     <div ref={outerRef} style={s.outer}>
