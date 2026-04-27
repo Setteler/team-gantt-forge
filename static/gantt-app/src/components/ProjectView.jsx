@@ -224,8 +224,13 @@ export default function ProjectView({
     return result;
   }
 
-  // ── Flatten tree into visible rows, sorted by active sort column ────────
-  // Sort is applied at each level (siblings within a parent sort together).
+  // ── Flatten tree into visible rows ───────────────────────────────────────
+  // Walk the tree depth-first. Within a sibling group:
+  //   1) sort by the active sort column (or original order)
+  //   2) topo-walk so a successor of any sibling is emitted RIGHT AFTER that
+  //      sibling (and its subtree). Result: a Blocks chain A → B → C
+  //      among siblings stacks vertically as A, B, C even if sort would
+  //      otherwise scatter them.
   const flatRows = useMemo(() => {
     const rows = [];
     function sortKeys(keys) {
@@ -234,7 +239,6 @@ export default function ProjectView({
       return [...keys].sort((a, b) => {
         const va = extractSortValue(issueByKey[a]?.fields?.[sortField]);
         const vb = extractSortValue(issueByKey[b]?.fields?.[sortField]);
-        // null / undefined always go to the bottom (regardless of direction)
         if (va == null && vb == null) return 0;
         if (va == null) return 1;
         if (vb == null) return -1;
@@ -243,24 +247,42 @@ export default function ProjectView({
       });
     }
     function walk(keys, depth, visited) {
-      for (const key of sortKeys(keys)) {
-        if (visited.has(key)) continue;
+      const sorted = sortKeys(keys);
+      const siblingSet = new Set(sorted);
+      // Build Blocks-successor map among siblings only (cross-parent links
+      // can't make rows adjacent — different subtrees).
+      const succsBy = {};
+      for (const k of sorted) {
+        const links = issueByKey[k]?.fields?.issuelinks || [];
+        for (const link of links) {
+          if (link.type?.name !== 'Blocks') continue;
+          const succ = link.outwardIssue?.key;
+          if (succ && siblingSet.has(succ)) {
+            if (!succsBy[k]) succsBy[k] = [];
+            succsBy[k].push(succ);
+          }
+        }
+      }
+      const placed = new Set();
+      function visit(key) {
+        if (placed.has(key) || visited.has(key)) return;
+        placed.add(key);
+        const iss = issueByKey[key];
+        if (!iss) return;
         const nextVisited = new Set(visited);
         nextVisited.add(key);
-
-        const iss = issueByKey[key];
-        if (!iss) continue;
-
         const kids = childrenByKey[key] || [];
         const hasKids = kids.length > 0;
         const isCollapsed = collapsed.has(key);
-
         rows.push({ key, depth, hasKids, isCollapsed });
-
         if (hasKids && !isCollapsed) {
           walk(kids, depth + 1, nextVisited);
         }
+        // After this issue's subtree, immediately visit its successors so
+        // dependent rows land on the next visible line.
+        for (const succ of succsBy[key] || []) visit(succ);
       }
+      for (const k of sorted) visit(k);
     }
     walk(roots.map(r => r.key), 0, new Set());
     return rows;
@@ -1066,44 +1088,53 @@ export default function ProjectView({
             {summary.length > 60 ? summary.slice(0, 57) + '...' : summary}
           </text>
         </g>
-        {/* Edge-resize hit areas — only on leaf bars (not collapsed parents,
-            since their dates are derived). Width 6px so they're easy to grab. */}
-        {!isCollapsedParent && !overflowLeft && (
+        {/* Edge-resize handles — INSIDE the bar so they don't overlap with
+            the connection dots that float outside. 5px wide. */}
+        {!isCollapsedParent && !overflowLeft && barWidth > 24 && (
           <rect
-            x={barLeft - 3} y={barY} width={6} height={barH}
+            x={barLeft} y={barY} width={5} height={barH}
             fill="transparent"
             style={{ cursor: 'ew-resize', pointerEvents: 'auto' }}
             onMouseDown={(e) => startEdgeResize(e, row, 'left')}
           />
         )}
-        {!isCollapsedParent && !overflowRight && (
+        {!isCollapsedParent && !overflowRight && barWidth > 24 && (
           <rect
-            x={barLeft + barWidth - 3} y={barY} width={6} height={barH}
+            x={barLeft + barWidth - 5} y={barY} width={5} height={barH}
             fill="transparent"
             style={{ cursor: 'ew-resize', pointerEvents: 'auto' }}
             onMouseDown={(e) => startEdgeResize(e, row, 'right')}
           />
         )}
-        {/* Connection dots — appear on hover, drag to create a Blocks link */}
+        {/* Connection dots — appear on hover, drag to create a Blocks link.
+            Sit OUTSIDE the bar (8px gap) and are bigger (r=7) so they're
+            easy to grab without fighting the bar's other interactive areas. */}
         {!isCollapsedParent && isHoveredBar && !overflowLeft && (
           <circle
-            cx={barLeft - 1} cy={barY + barH / 2} r={5}
-            fill="#6B778C" stroke="#fff" strokeWidth={2}
+            cx={barLeft - 10} cy={barY + barH / 2} r={7}
+            fill="#fff" stroke="#6B778C" strokeWidth={2}
             style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
             onMouseDown={(e) => startLinkDrag(e, row.key, 'inward')}
           >
-            <title>Drag to mark this issue as blocked by another</title>
+            <title>Drag to another bar to mark THIS issue as blocked by it</title>
           </circle>
+        )}
+        {!isCollapsedParent && isHoveredBar && !overflowLeft && (
+          /* Inner dot — visual anchor inside the white circle */
+          <circle cx={barLeft - 10} cy={barY + barH / 2} r={3} fill="#6B778C" style={{ pointerEvents: 'none' }} />
         )}
         {!isCollapsedParent && isHoveredBar && !overflowRight && (
           <circle
-            cx={barLeft + barWidth + 1} cy={barY + barH / 2} r={5}
-            fill="#0073EA" stroke="#fff" strokeWidth={2}
+            cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={7}
+            fill="#fff" stroke="#0073EA" strokeWidth={2}
             style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
             onMouseDown={(e) => startLinkDrag(e, row.key, 'outward')}
           >
-            <title>Drag to mark this issue as blocking another</title>
+            <title>Drag to another bar to mark THIS issue as blocking it</title>
           </circle>
+        )}
+        {!isCollapsedParent && isHoveredBar && !overflowRight && (
+          <circle cx={barLeft + barWidth + 10} cy={barY + barH / 2} r={3} fill="#0073EA" style={{ pointerEvents: 'none' }} />
         )}
       </g>
     );
@@ -1581,7 +1612,8 @@ export default function ProjectView({
               {rowGridLines}
               {/* Today line */}
               {todayLineEl}
-              {/* Dependency arrows — beneath bars (zIndex 2) so bars sit on top */}
+              {/* Dependency arrows — neutral grey, no red. Forward and
+                  backward (overlapping) deps render the same way. */}
               {depArrows.length > 0 && (
                 <svg
                   style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 2 }}
@@ -1597,16 +1629,14 @@ export default function ProjectView({
                     const forward = a.x2 >= a.x1;
                     const elbowX = forward ? a.x1 + GAP : Math.min(a.x1 + GAP, a.x2 - GAP);
                     const tipX = a.x2 - 2;
-                    const violated = !forward;
-                    const color = violated ? '#DE350B' : '#6B778C';
                     return (
                       <path
                         key={i}
                         d={`M ${a.x1} ${a.y1} L ${elbowX} ${a.y1} L ${elbowX} ${a.y2} L ${tipX} ${a.y2}`}
-                        fill="none" stroke={color} strokeWidth={violated ? 1.5 : 1}
+                        fill="none" stroke="#6B778C" strokeWidth={1}
                         strokeLinejoin="round"
                         markerEnd="url(#arrowhead-pv)"
-                        opacity={violated ? 1 : 0.7}
+                        opacity={0.75}
                       />
                     );
                   })}
