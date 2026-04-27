@@ -113,6 +113,7 @@ export default function ProjectView({
   listFields, availableFields, onListFieldsChange,
   onUpdateIssueField,
   colorByField, colorByValues, timelineZoom, timelineZoomScale,
+  onCreateLink, onDeleteLink,
 }) {
   const outerRef      = useRef(null);
   const bodyRef       = useRef(null);
@@ -137,6 +138,10 @@ export default function ProjectView({
   const [editingCell, setEditingCell] = useState(null); // { issueKey, fieldId, draft, loading?, transitions? } | null
   // Bar drag state
   const [draggingBar, setDraggingBar] = useState(null); // { key, delta } | null
+  // Edge-resize state — dragging left or right edge of a bar
+  const [resizingBar, setResizingBar] = useState(null); // { key, edge: 'left'|'right', delta } | null
+  // Link drag state — dragging from a connection dot to another bar
+  const [linkDrag, setLinkDrag] = useState(null); // { sourceKey, side: 'inward'|'outward', startX, startY, x, y } | null
   // Sort by field column (click header to sort)
   const [sortField, setSortField] = useState(null);      // fieldId | null
   const [sortDir, setSortDir]     = useState('desc');    // 'asc' | 'desc'
@@ -446,6 +451,95 @@ export default function ProjectView({
           onUpdateIssue(row.key, fmtISODate(addDays(sd, delta)), fmtISODate(addDays(ed, delta)));
         }
       }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── Edge resize: drag left/right edge of a bar to change start/end date ─
+  function startEdgeResize(e, row, edge) {
+    if (e.button !== 0) return;
+    if (row.hasKids) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    let delta = 0;
+    setSelectedKey(row.key);
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    function onMove(ev) {
+      const raw = Math.round((ev.clientX - startX) / DAY_WIDTH);
+      if (raw !== delta) { delta = raw; setResizingBar({ key: row.key, edge, delta }); }
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setResizingBar(null);
+      if (delta !== 0 && onUpdateIssue) {
+        const iss = issueByKey[row.key];
+        const sd = parseDate(iss?.fields?.[sdf]);
+        const ed = parseDate(iss?.fields?.[edf]);
+        if (sd && ed) {
+          const newStart = edge === 'left'  ? addDays(sd, delta) : sd;
+          const newEnd   = edge === 'right' ? addDays(ed, delta) : ed;
+          if (newStart < newEnd) {
+            onUpdateIssue(row.key, fmtISODate(newStart), fmtISODate(newEnd));
+          }
+        }
+      }
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // ── Click an unscheduled-issue placeholder to schedule it (today → +7) ─
+  function scheduleIssueAtToday(row) {
+    if (!onUpdateIssue) return;
+    const start = today;
+    const end = addDays(today, 7);
+    onUpdateIssue(row.key, fmtISODate(start), fmtISODate(end));
+  }
+
+  // ── Link drag: drag from a bar's connection dot to another bar to create
+  //    a Blocks dependency. Mouse coords are tracked in component-local
+  //    space so a ghost arrow can follow during the drag. ───────────────────
+  function startLinkDrag(e, sourceKey, side) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const containerLeft = bodyRef.current?.getBoundingClientRect()?.left || 0;
+    const containerTop  = bodyRef.current?.getBoundingClientRect()?.top  || 0;
+    const scrollLeft    = bodyRef.current?.scrollLeft || 0;
+    const scrollTop     = bodyRef.current?.scrollTop  || 0;
+    const startX = e.clientX - containerLeft + scrollLeft;
+    const startY = e.clientY - containerTop  + scrollTop;
+    setLinkDrag({ sourceKey, side, startX, startY, x: startX, y: startY, target: null });
+    document.body.style.cursor = 'crosshair';
+    function onMove(ev) {
+      const sl = bodyRef.current?.scrollLeft || 0;
+      const st = bodyRef.current?.scrollTop  || 0;
+      const x = ev.clientX - containerLeft + sl;
+      const y = ev.clientY - containerTop  + st;
+      // Detect target bar under cursor — find the row by y position
+      const rowIdx = Math.floor(y / ROW_HEIGHT);
+      const target = (rowIdx >= 0 && rowIdx < flatRows.length && flatRows[rowIdx].key !== sourceKey)
+        ? flatRows[rowIdx].key : null;
+      setLinkDrag(d => d ? { ...d, x, y, target } : null);
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      setLinkDrag(prev => {
+        if (prev && prev.target && onCreateLink) {
+          // outward dot = source blocks target; inward dot = target blocks source
+          if (side === 'outward') onCreateLink(sourceKey, prev.target);
+          else                    onCreateLink(prev.target, sourceKey);
+        }
+        return null;
+      });
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
@@ -823,7 +917,35 @@ export default function ProjectView({
       endDate   = parseDate(iss.fields?.[edf]);
     }
 
-    if (!startDate && !endDate) return null;
+    // Unscheduled leaf — no dates at all. Draw a dashed placeholder pill
+    // anchored to today; click/drag to schedule.
+    if (!startDate && !endDate) {
+      if (hasKids) return null; // expanded parent without dates → nothing
+      const placeholderY = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - 18) / 2;
+      const placeholderW = Math.max(60, DAY_WIDTH * 7);
+      const placeholderX = Math.max(0, todayOff - placeholderW / 2);
+      return (
+        <g key={row.key}>
+          <rect
+            x={placeholderX} y={placeholderY}
+            width={placeholderW} height={18} rx={4}
+            fill="#FFFAE6" stroke="#FF8B00" strokeWidth={1} strokeDasharray="3,2"
+            style={{ cursor: 'pointer', pointerEvents: 'auto', opacity: 0.85 }}
+            onClick={(e) => { e.stopPropagation(); scheduleIssueAtToday(row); }}
+          >
+            <title>{row.key} — click to schedule</title>
+          </rect>
+          <text
+            x={placeholderX + placeholderW / 2} y={placeholderY + 9}
+            dominantBaseline="central" textAnchor="middle"
+            fontSize={10} fontWeight={600} fill="#974F00"
+            style={{ pointerEvents: 'none' }}
+          >
+            ⊕ {row.key} — click to schedule
+          </text>
+        </g>
+      );
+    }
     if (startDate && !endDate) endDate = addDays(startDate, 7);
     if (!startDate && endDate) startDate = addDays(endDate, -7);
 
@@ -834,12 +956,15 @@ export default function ProjectView({
     const clippedEnd   = Math.min(totalDays, endOff);
     if (clippedEnd <= clippedStart) return null;
 
-    // Apply live drag offset if this bar is being dragged
-    const dragOffset = (draggingBar && draggingBar.key === row.key) ? draggingBar.delta * DAY_WIDTH : 0;
-    const barLeft  = clippedStart * DAY_WIDTH + dragOffset;
+    // Apply live drag offset (whole-bar move) and edge-resize offsets to
+    // visualize the operation in real time before the API call lands.
+    const dragOffset    = (draggingBar && draggingBar.key === row.key) ? draggingBar.delta * DAY_WIDTH : 0;
+    const resizeLeftDx  = (resizingBar && resizingBar.key === row.key && resizingBar.edge === 'left')  ? resizingBar.delta * DAY_WIDTH : 0;
+    const resizeRightDx = (resizingBar && resizingBar.key === row.key && resizingBar.edge === 'right') ? resizingBar.delta * DAY_WIDTH : 0;
+    const barLeft  = clippedStart * DAY_WIDTH + dragOffset + resizeLeftDx;
     // At the compressed zoom levels, a 1-day bar would be just 3-8px —
     // hard to spot. Floor bar width at 8px so every issue is visible.
-    const barWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH, 8);
+    const barWidth = Math.max((clippedEnd - clippedStart) * DAY_WIDTH - resizeLeftDx + resizeRightDx, 8);
     const overflowLeft  = startOff < 0;
     const overflowRight = endOff > totalDays;
 
@@ -895,9 +1020,10 @@ export default function ProjectView({
     const textColor   = '#fff';
     const summary = iss.fields?.summary || '';
 
+    const isHoveredBar = hoveredKey === row.key;
     return (
       <g key={row.key}>
-        {/* Bar background — draggable */}
+        {/* Bar background — drag the body to move the whole bar */}
         <rect
           x={barLeft} y={barY}
           width={barWidth} height={barH}
@@ -905,6 +1031,8 @@ export default function ProjectView({
           stroke={borderColor} strokeWidth={1}
           style={{ cursor: 'grab', pointerEvents: 'auto' }}
           onMouseDown={(e) => startBarDrag(e, row)}
+          onMouseEnter={() => setHoveredKey(row.key)}
+          onMouseLeave={() => setHoveredKey(null)}
         />
         {/* Overflow arrows */}
         {overflowLeft && (
@@ -938,9 +1066,104 @@ export default function ProjectView({
             {summary.length > 60 ? summary.slice(0, 57) + '...' : summary}
           </text>
         </g>
+        {/* Edge-resize hit areas — only on leaf bars (not collapsed parents,
+            since their dates are derived). Width 6px so they're easy to grab. */}
+        {!isCollapsedParent && !overflowLeft && (
+          <rect
+            x={barLeft - 3} y={barY} width={6} height={barH}
+            fill="transparent"
+            style={{ cursor: 'ew-resize', pointerEvents: 'auto' }}
+            onMouseDown={(e) => startEdgeResize(e, row, 'left')}
+          />
+        )}
+        {!isCollapsedParent && !overflowRight && (
+          <rect
+            x={barLeft + barWidth - 3} y={barY} width={6} height={barH}
+            fill="transparent"
+            style={{ cursor: 'ew-resize', pointerEvents: 'auto' }}
+            onMouseDown={(e) => startEdgeResize(e, row, 'right')}
+          />
+        )}
+        {/* Connection dots — appear on hover, drag to create a Blocks link */}
+        {!isCollapsedParent && isHoveredBar && !overflowLeft && (
+          <circle
+            cx={barLeft - 1} cy={barY + barH / 2} r={5}
+            fill="#6B778C" stroke="#fff" strokeWidth={2}
+            style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
+            onMouseDown={(e) => startLinkDrag(e, row.key, 'inward')}
+          >
+            <title>Drag to mark this issue as blocked by another</title>
+          </circle>
+        )}
+        {!isCollapsedParent && isHoveredBar && !overflowRight && (
+          <circle
+            cx={barLeft + barWidth + 1} cy={barY + barH / 2} r={5}
+            fill="#0073EA" stroke="#fff" strokeWidth={2}
+            style={{ cursor: 'crosshair', pointerEvents: 'auto' }}
+            onMouseDown={(e) => startLinkDrag(e, row.key, 'outward')}
+          >
+            <title>Drag to mark this issue as blocking another</title>
+          </circle>
+        )}
       </g>
     );
   }
+
+  // ── Dependency arrows ──────────────────────────────────────────────────
+  // Walk every issue's "Blocks" links and compute screen coords for each
+  // arrow. Only arrows where both ends are in the visible (flatRows) list
+  // are drawn. Each arrow stores predecessor right-edge → successor
+  // left-edge with their row mid-Ys, ready for SVG elbow rendering.
+  const depArrows = useMemo(() => {
+    const indexByKey = {};
+    flatRows.forEach((r, i) => { indexByKey[r.key] = i; });
+    const out = [];
+    function getBarBox(key) {
+      const idx = indexByKey[key];
+      if (idx == null) return null;
+      const iss = issueByKey[key];
+      if (!iss) return null;
+      let sd, ed;
+      if ((childrenByKey[key] || []).length > 0) {
+        const r = getRollupDates(key, new Set());
+        sd = r.minStart; ed = r.maxEnd;
+      } else {
+        sd = parseDate(iss.fields?.[sdf]);
+        ed = parseDate(iss.fields?.[edf]);
+      }
+      if (!sd || !ed) return null;
+      const startOff = daysBetween(bufferStart, sd);
+      const endOff   = daysBetween(bufferStart, ed) + 1;
+      const left  = Math.max(0, startOff) * DAY_WIDTH;
+      const right = Math.min(totalDays, endOff) * DAY_WIDTH;
+      const midY  = idx * ROW_HEIGHT + ROW_HEIGHT / 2;
+      return { left, right, midY };
+    }
+    const seen = new Set();
+    for (const row of flatRows) {
+      const iss = issueByKey[row.key];
+      const links = iss?.fields?.issuelinks || [];
+      for (const link of links) {
+        if (link.type?.name !== 'Blocks') continue;
+        let predKey = null, succKey = null, linkId = link.id || null;
+        if (link.outwardIssue?.key) { predKey = row.key; succKey = link.outwardIssue.key; }
+        else if (link.inwardIssue?.key) { predKey = link.inwardIssue.key; succKey = row.key; }
+        if (!predKey || !succKey) continue;
+        const k = `${predKey}->${succKey}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const a = getBarBox(predKey);
+        const b = getBarBox(succKey);
+        if (!a || !b) continue;
+        out.push({
+          predKey, succKey, linkId,
+          x1: a.right, y1: a.midY,
+          x2: b.left,  y2: b.midY,
+        });
+      }
+    }
+    return out;
+  }, [flatRows, issueByKey, childrenByKey, bufferStart, totalDays, sdf, edf, DAY_WIDTH]);
 
   // ── Row grid lines (draw above weekend/holiday shading so they stay
   //    visible over colored backgrounds; color matches left row borders) ───
@@ -1330,6 +1553,37 @@ export default function ProjectView({
               {rowGridLines}
               {/* Today line */}
               {todayLineEl}
+              {/* Dependency arrows — beneath bars (zIndex 2) so bars sit on top */}
+              {depArrows.length > 0 && (
+                <svg
+                  style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 2 }}
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <defs>
+                    <marker id="arrowhead-pv" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                      <path d="M 0 1 L 7 4 L 0 7 z" fill="#6B778C" />
+                    </marker>
+                  </defs>
+                  {depArrows.map((a, i) => {
+                    const GAP = 10;
+                    const forward = a.x2 >= a.x1;
+                    const elbowX = forward ? a.x1 + GAP : Math.min(a.x1 + GAP, a.x2 - GAP);
+                    const tipX = a.x2 - 2;
+                    const violated = !forward;
+                    const color = violated ? '#DE350B' : '#6B778C';
+                    return (
+                      <path
+                        key={i}
+                        d={`M ${a.x1} ${a.y1} L ${elbowX} ${a.y1} L ${elbowX} ${a.y2} L ${tipX} ${a.y2}`}
+                        fill="none" stroke={color} strokeWidth={violated ? 1.5 : 1}
+                        strokeLinejoin="round"
+                        markerEnd="url(#arrowhead-pv)"
+                        opacity={violated ? 1 : 0.7}
+                      />
+                    );
+                  })}
+                </svg>
+              )}
               {/* Bars (SVG overlay) */}
               <svg
                 style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 3 }}
@@ -1337,6 +1591,24 @@ export default function ProjectView({
               >
                 {flatRows.map((row, idx) => renderBar(row, idx))}
               </svg>
+              {/* Link-drag ghost: dashed line from source dot to mouse */}
+              {linkDrag && (
+                <svg
+                  style={{ position: 'absolute', top: 0, left: 0, width: totalWidth, height: totalContentHeight, pointerEvents: 'none', zIndex: 5 }}
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <line
+                    x1={linkDrag.startX} y1={linkDrag.startY}
+                    x2={linkDrag.x}      y2={linkDrag.y}
+                    stroke={linkDrag.target ? '#0073EA' : '#6B778C'}
+                    strokeWidth={2} strokeDasharray="4,3"
+                  />
+                  <circle
+                    cx={linkDrag.x} cy={linkDrag.y} r={4}
+                    fill={linkDrag.target ? '#0073EA' : '#6B778C'}
+                  />
+                </svg>
+              )}
               {/* Row highlight on hover (transparent clickable row zones) */}
               {flatRows.map((row, idx) => {
                 const isSelected = selectedKey === row.key;

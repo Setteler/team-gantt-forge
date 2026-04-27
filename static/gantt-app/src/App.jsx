@@ -1192,6 +1192,8 @@ export default function App() {
               colorByValues={colorByValues}
               timelineZoom={timelineZoom}
               timelineZoomScale={timelineZoomScale}
+              onCreateLink={handleCreateLink}
+              onDeleteLink={handleDeleteLink}
             />
             </ModuleErrorBoundary>
           ) : (
