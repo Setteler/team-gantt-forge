@@ -297,10 +297,6 @@ export default function ViewSidebar({
 
   return (
     <div style={styles.sidebar}>
-      <div style={{ padding: '12px 14px 10px', borderBottom: `1px solid ${C.line}` }}>
-        <span style={{ fontFamily: T.display, fontSize: 15, fontWeight: 600, color: C.ink, letterSpacing: -0.3 }}>Team Gantt</span>
-      </div>
-
       <div style={{ ...styles.sidebarHeader, paddingTop: 12 }}>
         <span>Views</span>
         <button style={styles.headerBtn} onClick={() => setCreatingFolder(true)} title="New folder">

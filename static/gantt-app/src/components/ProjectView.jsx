@@ -1214,12 +1214,40 @@ export default function ProjectView({
   // below). Gradual scaling means names never vanish mid-drag.
   const COLLAPSED_COL_WIDTH = 28;
   const nameColWidth = Math.max(NAME_COL_MIN, Math.min(NAME_COL_MAX, nameWidthUser));
+
+  // Auto-fit per-column natural width by sampling issue values. Dates use a
+  // tighter cap; everything else fits the longest sampled value (capped) so
+  // 'Backlog' columns aren't wasting half the screen.
+  const autoFitWidths = useMemo(() => {
+    const map = {};
+    const sample = issues.slice(0, 80);
+    for (const f of extraFields) {
+      if (f.id === 'duedate' || f.id === 'customfield_10015') {
+        map[f.id] = 88; // dates: "Apr 30"
+        continue;
+      }
+      let maxLen = Math.max(6, (f.name || '').length); // header text floor
+      for (const iss of sample) {
+        const v = iss.fields?.[f.id];
+        if (v == null) continue;
+        let text = '';
+        if (typeof v === 'string') text = v;
+        else if (typeof v === 'number' || typeof v === 'boolean') text = String(v);
+        else if (Array.isArray(v)) text = v.map(x => typeof x === 'string' ? x : (x?.name || x?.value || x?.displayName || '')).filter(Boolean).join(', ');
+        else text = v.name || v.displayName || v.value || v.key || '';
+        if (text.length > maxLen) maxLen = text.length;
+      }
+      // ~6.5px per char (11px font) + 28px padding & sort glyph
+      map[f.id] = Math.max(80, Math.min(220, Math.round(maxLen * 6.5 + 28)));
+    }
+    return map;
+  }, [extraFields, issues]);
   const { widthByFieldId, autoCollapsed, treeContentWidth } = (() => {
     const desired = {};
     for (const f of extraFields) {
       if (collapsedCols.has(f.id))       desired[f.id] = COLLAPSED_COL_WIDTH;
       else if (colWidthOverrides[f.id])  desired[f.id] = Math.max(COLLAPSED_COL_WIDTH, colWidthOverrides[f.id]);
-      else                                desired[f.id] = FIELD_COL_NATURAL;
+      else                                desired[f.id] = autoFitWidths[f.id] ?? FIELD_COL_NATURAL;
     }
     const final = { ...desired };
     const autoSet = new Set();
